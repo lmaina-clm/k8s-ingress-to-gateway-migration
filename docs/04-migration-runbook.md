@@ -79,9 +79,9 @@ N/A — solo estás leyendo el estado.
 
 ### Acciones
 
-1. **Instalar CRDs de Gateway API** (v1.4.1):
+1. **Instalar CRDs de Gateway API** (v1.5.1):
    ```bash
-   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
+   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
    ```
 
 2. **Verificar CRDs**:
@@ -102,9 +102,9 @@ N/A — solo estás leyendo el estado.
 4. **Verificar control-plane**:
    ```bash
    kubectl get pods -n nginx-gateway
-   kubectl get gatewayclass nginx
+   kubectl get gatewayclass nginx-gateway
    ```
-   `gatewayclass nginx` debe estar `ACCEPTED=True`.
+   `gatewayclass nginx-gateway` debe estar `ACCEPTED=True`.
 
 5. **NO crear `Gateway` todavía.** Sin `Gateway`, NGF no crea data-plane ni NLB. Cero impacto.
 
@@ -112,7 +112,7 @@ N/A — solo estás leyendo el estado.
 
 - [ ] CRDs presentes (5 mínimo).
 - [ ] NGF control-plane `Running`.
-- [ ] `GatewayClass nginx` `ACCEPTED`.
+- [ ] `GatewayClass nginx-gateway` `ACCEPTED`.
 - [ ] `kubectl get svc -A` NO muestra ningún NLB nuevo (todavía no se creó).
 - [ ] Tráfico vía `ingress-nginx` sigue al 100%. `./scripts/validate-traffic.sh ingress` pasa.
 
@@ -120,7 +120,7 @@ N/A — solo estás leyendo el estado.
 
 ```bash
 helm uninstall ngf -n nginx-gateway
-kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
 kubectl delete namespace nginx-gateway
 ```
 

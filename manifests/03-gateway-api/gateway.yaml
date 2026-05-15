@@ -22,7 +22,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: boutique
 spec:
-  gatewayClassName: nginx
+  # GatewayClass creado por el chart de NGF con
+  # `nginxGateway.gatewayClassName=nginx-gateway`. Renombrado desde el default
+  # `nginx` para evitar confusión con `ingressClassName: nginx` durante la
+  # coexistencia.
+  gatewayClassName: nginx-gateway
   # Anotaciones de infraestructura para el NLB (vía AWS Load Balancer Controller)
   infrastructure:
     annotations:

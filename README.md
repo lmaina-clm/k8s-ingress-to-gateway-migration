@@ -4,7 +4,7 @@
 
 ## ¿Por qué este repo?
 
-En **marzo de 2025**, el proyecto upstream `ingress-nginx` (el controller que la mayoría de equipos tiene en producción) fue marcado como **deprecated** por la comunidad de Kubernetes, con fecha de retiro definitivo. La sucesora natural es la **Gateway API**, ahora GA, que separa responsabilidades entre infraestructura y aplicación, soporta routing avanzado nativamente, y elimina la dependencia de anotaciones específicas de cada vendor.
+En **marzo de 2026**, el proyecto upstream `ingress-nginx` (el controller que la mayoría de equipos tiene en producción) fue marcado como **deprecated** por la comunidad de Kubernetes, con fecha de retiro definitivo. La sucesora natural es la **Gateway API**, ahora GA, que separa responsabilidades entre infraestructura y aplicación, soporta routing avanzado nativamente, y elimina la dependencia de anotaciones específicas de cada vendor.
 
 Este repositorio te entrega:
 
@@ -149,7 +149,7 @@ Probado y documentado contra:
 |------------|---------|
 | Kubernetes (EKS) | 1.30, 1.31, 1.32 |
 | ingress-nginx | v1.11.x (último antes del EOL) |
-| Gateway API CRDs | v1.4.1 |
+| Gateway API CRDs | v1.5.1 |
 | NGINX Gateway Fabric | 2.6.x |
 | Online Boutique | v0.10.x |
 | AWS Load Balancer Controller | v2.8.x |

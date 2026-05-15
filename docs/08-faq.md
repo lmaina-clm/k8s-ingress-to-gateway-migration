@@ -4,7 +4,7 @@ Preguntas que el equipo te va a hacer cuando presentes la migración.
 
 ## ¿Por qué tenemos que migrar?
 
-`ingress-nginx` (el proyecto de la comunidad de Kubernetes, no NGINX Inc.) fue **marcado como deprecated en marzo de 2025**. La comunidad recomienda Gateway API como sucesor. Aunque seguirá funcionando un tiempo, no recibirá features nuevos y los fixes de seguridad serán cada vez más lentos.
+`ingress-nginx` (el proyecto de la comunidad de Kubernetes, no NGINX Inc.) fue **marcado como deprecated en marzo de 2026**. La comunidad recomienda Gateway API como sucesor. Aunque seguirá funcionando un tiempo, no recibirá features nuevos y los fixes de seguridad serán cada vez más lentos.
 
 Postergar la migración es deuda técnica que crece.
 
@@ -18,7 +18,7 @@ Técnicamente sí, mientras funcione. Pero:
 
 ## ¿Gateway API es estable?
 
-Sí. Las APIs core (Gateway, GatewayClass, HTTPRoute) están **GA desde v1.0** (Octubre 2023). Actualmente estamos en v1.4.1. Múltiples implementaciones en producción (Google, AWS, NGINX, Istio).
+Sí. Las APIs core (Gateway, GatewayClass, HTTPRoute) están **GA desde v1.0** (Octubre 2023). Actualmente estamos en v1.5.1. Múltiples implementaciones en producción (Google, AWS, NGINX, Istio).
 
 ## ¿Por qué NGINX Gateway Fabric y no Istio/Envoy/Cilium?
 

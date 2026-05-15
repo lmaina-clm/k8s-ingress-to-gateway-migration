@@ -2,8 +2,10 @@
 #
 # Aplica el manifiesto upstream v0.10.2 y le hace los siguientes ajustes:
 # - Mueve todo al namespace `microservices`
-# - Remueve `frontend-external` (LoadBalancer directo) — el acceso público
-#   lo gestionamos a través de Ingress/Gateway
+# - Remueve el Service `frontend-external` (tipo LoadBalancer) — el upstream
+#   NO trae ningún Ingress, solo este LoadBalancer Service que expone el
+#   frontend directamente. Lo eliminamos porque el acceso público lo gestionamos
+#   a través de Ingress (estado inicial) o Gateway API (estado final).
 # - Aplica labels consistentes
 #
 # Para fijar a una versión distinta del demo, cambiar el ref en `resources`.
@@ -17,10 +19,16 @@ namespace: microservices
 resources:
   - https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/v0.10.2/release/kubernetes-manifests.yaml
 
-# Labels comunes
-commonLabels:
-  app.kubernetes.io/part-of: boutique
-  app.kubernetes.io/managed-by: ingress-to-gateway-demo
+# Labels comunes — reemplaza el `commonLabels` deprecado (kustomize v5+).
+# `includeSelectors: true` mantiene el comportamiento histórico de inyectar
+# el label en los selectors de los Services/Deployments (para que sigan
+# matcheando los pods). `includeTemplates: true` lo propaga al podTemplate.
+labels:
+  - includeSelectors: true
+    includeTemplates: true
+    pairs:
+      app.kubernetes.io/part-of: boutique
+      app.kubernetes.io/managed-by: ingress-to-gateway-demo
 
 # Quitamos el LoadBalancer directo del frontend porque lo exponemos
 # vía Ingress / Gateway en otras carpetas

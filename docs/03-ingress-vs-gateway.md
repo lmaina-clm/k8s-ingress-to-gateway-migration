@@ -79,7 +79,7 @@ metadata:
   name: boutique-gateway
   namespace: gateway-system
 spec:
-  gatewayClassName: nginx
+  gatewayClassName: nginx-gateway
   listeners:
     - name: https
       protocol: HTTPS

@@ -33,7 +33,7 @@ Este documento detalla **qué hacer si las cosas van mal** en cada fase. Está p
 helm uninstall ngf -n nginx-gateway
 
 # 2. Eliminar CRDs de Gateway API (CUIDADO si tienes otras apps que las usen)
-kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
 
 # 3. Eliminar namespaces
 kubectl delete namespace nginx-gateway gateway-system 2>/dev/null

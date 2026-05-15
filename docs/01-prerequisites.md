@@ -7,7 +7,7 @@ Antes de empezar la migración, valida que tu entorno cumple con lo siguiente. S
 ### Versión mínima
 
 - **Kubernetes 1.25+** (NGINX Gateway Fabric 2.x requiere 1.25 como mínimo).
-- Recomendado: **1.30+** para tener Gateway API v1.4 sin parches.
+- Recomendado: **1.30+** para tener Gateway API v1.5 sin parches.
 
 Verifica:
 

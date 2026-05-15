@@ -14,7 +14,7 @@ kubectl get crd | grep gateway.networking.k8s.io
 kubectl get pods -n nginx-gateway
 
 # 3. ¿El GatewayClass está aceptado?
-kubectl describe gatewayclass nginx | grep -A5 Conditions
+kubectl describe gatewayclass nginx-gateway | grep -A5 Conditions
 
 # 4. ¿El Gateway está programado?
 kubectl describe gateway -n gateway-system boutique-gateway
@@ -41,15 +41,15 @@ El 80% de los problemas se detectan con uno de estos comandos.
 
 **Síntomas**:
 ```
-NAME                CLASS   ADDRESS   PROGRAMMED   AGE
-boutique-gateway    nginx             False        5m
+NAME                CLASS           ADDRESS   PROGRAMMED   AGE
+boutique-gateway    nginx-gateway             False        5m
 ```
 
 **Causas y soluciones**:
 
 1. **No hay GatewayClass**:
    ```bash
-   kubectl get gatewayclass nginx
+   kubectl get gatewayclass nginx-gateway
    ```
    Si está vacío, NGF no está instalado. Volver a fase 2.
 

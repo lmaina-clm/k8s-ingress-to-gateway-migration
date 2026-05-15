@@ -35,7 +35,7 @@ kubectl apply -f manifests/03-gateway-api/
 
 ```bash
 # El GatewayClass debe estar Accepted
-kubectl get gatewayclass nginx
+kubectl get gatewayclass nginx-gateway
 
 # El Gateway debe estar Programmed
 kubectl get gateway -n gateway-system

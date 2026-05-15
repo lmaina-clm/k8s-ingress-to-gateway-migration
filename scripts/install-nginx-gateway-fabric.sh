@@ -2,22 +2,24 @@
 # =============================================================================
 # install-nginx-gateway-fabric.sh
 # =============================================================================
-# Instala Gateway API CRDs (v1.4.1) + NGINX Gateway Fabric (v2.6.x) en el
+# Instala Gateway API CRDs (v1.5.1) + NGINX Gateway Fabric (v2.6.x) en el
 # clúster. Idempotente.
 #
 # Uso:
 #   ./scripts/install-nginx-gateway-fabric.sh
 #
 # Variables de entorno opcionales:
-#   GATEWAY_API_VERSION    (default: v1.4.1)
+#   GATEWAY_API_VERSION    (default: v1.5.1)
 #   NGF_NAMESPACE          (default: nginx-gateway)
 #   NGF_VERSION            (default: 2.6.0)
+#   GATEWAY_CLASS_NAME     (default: nginx-gateway)
 # =============================================================================
 set -euo pipefail
 
-GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.4.1}"
+GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.5.1}"
 NGF_NAMESPACE="${NGF_NAMESPACE:-nginx-gateway}"
 NGF_VERSION="${NGF_VERSION:-2.6.0}"
+GATEWAY_CLASS_NAME="${GATEWAY_CLASS_NAME:-nginx-gateway}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -63,6 +65,7 @@ helm upgrade --install ngf oci://ghcr.io/nginx/charts/nginx-gateway-fabric \
   --namespace "$NGF_NAMESPACE" \
   --version "$NGF_VERSION" \
   --set nginx.image.repository=ghcr.io/nginx/nginx-gateway-fabric/nginx \
+  --set nginxGateway.gatewayClassName="$GATEWAY_CLASS_NAME" \
   --set nginxGateway.replicaCount=2 \
   --set nginxGateway.metrics.enable=true \
   --set nginxGateway.metrics.port=9113 \
@@ -71,9 +74,9 @@ helm upgrade --install ngf oci://ghcr.io/nginx/charts/nginx-gateway-fabric \
   --timeout 5m
 
 # Paso 3: Verificar que el GatewayClass está aceptado
-log "Verificando GatewayClass..."
+log "Verificando GatewayClass '$GATEWAY_CLASS_NAME'..."
 for i in {1..30}; do
-  STATUS=$(kubectl get gatewayclass nginx \
+  STATUS=$(kubectl get gatewayclass "$GATEWAY_CLASS_NAME" \
     -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)
   if [ "$STATUS" = "True" ]; then
     break
@@ -83,7 +86,7 @@ for i in {1..30}; do
 done
 echo
 
-[ "$STATUS" = "True" ] || err "GatewayClass 'nginx' no está Accepted tras 60s"
+[ "$STATUS" = "True" ] || err "GatewayClass '$GATEWAY_CLASS_NAME' no está Accepted tras 60s"
 
 log "✅ Instalación completa."
 log ""
