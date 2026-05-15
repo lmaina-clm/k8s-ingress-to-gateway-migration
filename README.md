@@ -67,7 +67,8 @@ Durante la migración, **ambos controllers corren en paralelo** con LoadBalancer
 │   ├── 05-zero-downtime.md            ← análisis y estrategia
 │   ├── 06-rollback.md                 ← plan de reversión
 │   ├── 07-troubleshooting.md          ← problemas comunes
-│   └── 08-faq.md
+│   ├── 08-faq.md
+│   └── 09-fast-validation-runbook.md  ← validación rápida en EKS efímero (~45 min)
 ├── manifests/
 │   ├── 00-base/                       ← namespace, recursos compartidos
 │   ├── 01-microservices/              ← Online Boutique (Deployments + Services)
@@ -75,6 +76,8 @@ Durante la migración, **ambos controllers corren en paralelo** con LoadBalancer
 │   ├── 03-gateway-api/                ← estado final: GatewayClass + Gateway + HTTPRoutes
 │   └── 04-migration/                  ← recursos de coexistencia y validación
 ├── scripts/
+│   ├── setup-eks-demo-cluster.sh      ← crea EKS efímero para la validación rápida
+│   ├── teardown-eks-demo-cluster.sh   ← destruye el EKS efímero (con --confirm)
 │   ├── install-ingress-nginx.sh
 │   ├── install-nginx-gateway-fabric.sh
 │   ├── validate-traffic.sh            ← smoke tests durante la migración

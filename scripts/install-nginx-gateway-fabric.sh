@@ -13,6 +13,8 @@
 #   NGF_NAMESPACE          (default: nginx-gateway)
 #   NGF_VERSION            (default: 2.6.0)
 #   GATEWAY_CLASS_NAME     (default: nginx-gateway)
+#   SKIP_CONFIRM           (default: 0 — set a "1" para no preguntar antes de
+#                          instalar; útil en runbooks automatizados)
 # =============================================================================
 set -euo pipefail
 
@@ -20,6 +22,7 @@ GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.5.1}"
 NGF_NAMESPACE="${NGF_NAMESPACE:-nginx-gateway}"
 NGF_VERSION="${NGF_VERSION:-2.6.0}"
 GATEWAY_CLASS_NAME="${GATEWAY_CLASS_NAME:-nginx-gateway}"
+SKIP_CONFIRM="${SKIP_CONFIRM:-0}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,9 +39,13 @@ command -v kubectl >/dev/null || err "kubectl no está instalado"
 
 CTX=$(kubectl config current-context)
 log "Contexto actual: $CTX"
-read -p "¿Continuar con este clúster? (y/N) " -n 1 -r
-echo
-[[ $REPLY =~ ^[Yy]$ ]] || err "Cancelado por usuario"
+if [ "$SKIP_CONFIRM" != "1" ]; then
+  read -p "¿Continuar con este clúster? (y/N) " -n 1 -r
+  echo
+  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelado por usuario"
+else
+  log "SKIP_CONFIRM=1 — saltando confirmación interactiva"
+fi
 
 # Paso 1: Gateway API CRDs
 log "Instalando Gateway API CRDs ($GATEWAY_API_VERSION)..."

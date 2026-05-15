@@ -12,12 +12,15 @@
 #   INGRESS_NS         (default: ingress-nginx)
 #   INGRESS_VERSION    (default: 4.11.3 — Helm chart, no la versión del binario)
 #   AWS_LB_SCHEME      (default: internet-facing; usar "internal" para LB privado)
+#   SKIP_CONFIRM       (default: 0 — set a "1" para no preguntar antes de
+#                      instalar; útil en runbooks automatizados)
 # =============================================================================
 set -euo pipefail
 
 INGRESS_NS="${INGRESS_NS:-ingress-nginx}"
 INGRESS_VERSION="${INGRESS_VERSION:-4.11.3}"
 AWS_LB_SCHEME="${AWS_LB_SCHEME:-internet-facing}"
+SKIP_CONFIRM="${SKIP_CONFIRM:-0}"
 
 # Color output
 RED='\033[0;31m'
@@ -35,9 +38,13 @@ command -v kubectl >/dev/null || err "kubectl no está instalado"
 
 CTX=$(kubectl config current-context)
 log "Contexto actual: $CTX"
-read -p "¿Continuar con este clúster? (y/N) " -n 1 -r
-echo
-[[ $REPLY =~ ^[Yy]$ ]] || err "Cancelado por usuario"
+if [ "$SKIP_CONFIRM" != "1" ]; then
+  read -p "¿Continuar con este clúster? (y/N) " -n 1 -r
+  echo
+  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelado por usuario"
+else
+  log "SKIP_CONFIRM=1 — saltando confirmación interactiva"
+fi
 
 # Repo Helm
 log "Agregando repo Helm de ingress-nginx..."
