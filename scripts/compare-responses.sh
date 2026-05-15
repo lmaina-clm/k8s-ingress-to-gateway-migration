@@ -86,7 +86,8 @@ PORT=443
 [ "$PROTOCOL" = "http" ] && PORT=80
 
 TMP=$(mktemp -d)
-trap "rm -rf $TMP" EXIT
+# Comillas simples para que $TMP se expanda al ejecutar el trap, no al definirlo
+trap 'rm -rf "$TMP"' EXIT
 
 # Headers que se ignoran en la comparación porque son volátiles o esperados
 # diferentes entre los dos controllers

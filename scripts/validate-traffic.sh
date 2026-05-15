@@ -54,7 +54,6 @@ FORCED_NLB="${2:-}"
 log() { echo -e "${BLUE}[validate]${NC} $*"; }
 ok() { echo -e "${GREEN}✓${NC} $*"; }
 fail() { echo -e "${RED}✗${NC} $*"; }
-warn() { echo -e "${YELLOW}!${NC} $*"; }
 
 # Resolver el NLB hostname según el target
 get_ingress_nlb() {

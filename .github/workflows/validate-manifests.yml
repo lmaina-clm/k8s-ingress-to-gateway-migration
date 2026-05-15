@@ -110,4 +110,7 @@ jobs:
           sudo apt-get install -y shellcheck
           # SC2086: unquoted vars (intentional in some curl args)
           # SC1091: source not following (not relevant here)
-          shellcheck -e SC2086,SC1091 scripts/*.sh
+          # SC2034: loop var `i` intentionally unused in retry loops (for i in {1..N})
+          # SC2001: `sed 's/^/.../'` cannot be rewritten as ${var//search/replace}
+          #         because bash parameter expansion does not support ^ anchor
+          shellcheck -e SC2086,SC1091,SC2034,SC2001 scripts/*.sh

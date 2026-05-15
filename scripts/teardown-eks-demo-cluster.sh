@@ -126,9 +126,11 @@ if aws iam get-policy --policy-arn "$POLICY_ARN" >/dev/null 2>&1; then
     warn "  - Desadjuntando de role $role"
     aws iam detach-role-policy --role-name "$role" --policy-arn "$POLICY_ARN" 2>/dev/null || true
   done
-  aws iam delete-policy --policy-arn "$POLICY_ARN" 2>/dev/null \
-    && ok "IAM policy borrada." \
-    || warn "No se pudo borrar la policy (puede haber versiones múltiples — revisar manualmente)."
+  if aws iam delete-policy --policy-arn "$POLICY_ARN" 2>/dev/null; then
+    ok "IAM policy borrada."
+  else
+    warn "No se pudo borrar la policy (puede haber versiones múltiples — revisar manualmente)."
+  fi
 else
   ok "IAM policy ya no existe."
 fi
