@@ -1,0 +1,113 @@
+name: Validate Kubernetes Manifests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint YAML files
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 200}, indentation: {indent-sequences: consistent}}}" \
+            manifests/ .github/
+
+  kubeconform:
+    name: Validate against K8s + Gateway API schemas
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        k8s-version: ["1.30.0", "1.31.0", "1.32.0"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -L -o kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate manifests against Kubernetes ${{ matrix.k8s-version }}
+        run: |
+          # Gateway API CRDs schema location
+          GATEWAY_API_SCHEMAS="https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+
+          # Validate everything except 04-migration (JSON files for AWS, not k8s manifests)
+          # and the kustomization in 01-microservices (resolved by kubectl kustomize)
+          kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location "$GATEWAY_API_SCHEMAS" \
+            -kubernetes-version ${{ matrix.k8s-version }} \
+            manifests/00-base/ \
+            manifests/02-ingress-nginx/ \
+            manifests/03-gateway-api/
+
+  kustomize-build:
+    name: Kustomize build of microservices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Build kustomization
+        run: |
+          kustomize build manifests/01-microservices/ > /tmp/microservices.yaml
+          echo "Resources generated:"
+          grep -c "^kind:" /tmp/microservices.yaml
+
+  json-validate:
+    name: Validate Route 53 JSON files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON
+        run: |
+          for f in manifests/04-migration/*.json; do
+            echo "Validating $f..."
+            python3 -c "import json; json.load(open('$f'))" || exit 1
+          done
+          echo "All JSON files are valid."
+
+      - name: Check for placeholders in JSON (warn, don't fail)
+        run: |
+          if grep -l '<.*_NLB_' manifests/04-migration/*.json; then
+            echo "::warning::Some JSON files still have placeholders. This is expected in the repo (templates), but reviewers should ensure they're replaced before applying to production."
+          fi
+
+  shellcheck:
+    name: Shellcheck on scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck
+        run: |
+          sudo apt-get install -y shellcheck
+          # SC2086: unquoted vars (intentional in some curl args)
+          # SC1091: source not following (not relevant here)
+          shellcheck -e SC2086,SC1091 scripts/*.sh

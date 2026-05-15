@@ -1,0 +1,33 @@
+{
+  "Comment": "Canary step 4: 75% to NGF, 25% remains on ingress-nginx.",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "ingress-nginx",
+        "Weight": 25,
+        "AliasTarget": {
+          "HostedZoneId": "<INGRESS_NLB_ZONE_ID>",
+          "DNSName": "<INGRESS_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "nginx-gateway-fabric",
+        "Weight": 75,
+        "AliasTarget": {
+          "HostedZoneId": "<GATEWAY_NLB_ZONE_ID>",
+          "DNSName": "<GATEWAY_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+# Local kubectl/helm artifacts
+*.kubeconfig
+.kube/
+
+# Generated manifests / snapshots
+*.snapshot.yaml
+/tmp/*
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Certificates — NEVER commit real certs
+*.pem
+*.crt
+*.key
+*.p12
+*.pfx
+!manifests/02-ingress-nginx/tls-secret.yaml
+
+# Helm / Terraform local state
+charts/
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Python cache (en scripts/)
+__pycache__/
+*.pyc

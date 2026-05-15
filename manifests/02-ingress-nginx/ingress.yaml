@@ -1,0 +1,44 @@
+# =============================================================================
+# Ingress de la API de Online Boutique
+# =============================================================================
+# Único Ingress que expone el `frontend`. Las anotaciones reflejan un caso
+# típico de producción:
+#
+# - force-ssl-redirect: redirige todo HTTP a HTTPS
+# - proxy-body-size: permite hasta 10MB en POST (uploads de checkout)
+# - proxy-read/connect-timeout: tolera respuestas lentas del checkoutservice
+#
+# Si tu Ingress real tiene más anotaciones, agrégalas aquí o en sus equivalentes
+# del Gateway (ver docs/03-ingress-vs-gateway.md).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: boutique
+  namespace: microservices
+  annotations:
+    # Anotaciones típicas de ingress-nginx
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    # Tracking de quién maneja este recurso
+    app.kubernetes.io/managed-by: ingress-to-gateway-demo
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - shop.example.com
+      secretName: shop-tls
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

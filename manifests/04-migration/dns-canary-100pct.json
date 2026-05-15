@@ -1,0 +1,33 @@
+{
+  "Comment": "Cutover: 100% to NGF, 0% to ingress-nginx. ingress-nginx weight=0 means no new traffic but the record remains for fast rollback.",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "ingress-nginx",
+        "Weight": 0,
+        "AliasTarget": {
+          "HostedZoneId": "<INGRESS_NLB_ZONE_ID>",
+          "DNSName": "<INGRESS_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "nginx-gateway-fabric",
+        "Weight": 100,
+        "AliasTarget": {
+          "HostedZoneId": "<GATEWAY_NLB_ZONE_ID>",
+          "DNSName": "<GATEWAY_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    }
+  ]
+}

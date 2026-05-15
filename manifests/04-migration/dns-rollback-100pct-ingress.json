@@ -1,0 +1,33 @@
+{
+  "Comment": "Rollback: 100% of traffic back to ingress-nginx, 0% to NGF. Apply immediately if errors are observed.",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "ingress-nginx",
+        "Weight": 100,
+        "AliasTarget": {
+          "HostedZoneId": "<INGRESS_NLB_ZONE_ID>",
+          "DNSName": "<INGRESS_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "nginx-gateway-fabric",
+        "Weight": 0,
+        "AliasTarget": {
+          "HostedZoneId": "<GATEWAY_NLB_ZONE_ID>",
+          "DNSName": "<GATEWAY_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    }
+  ]
+}

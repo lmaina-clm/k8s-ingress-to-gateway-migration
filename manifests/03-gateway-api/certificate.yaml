@@ -1,0 +1,39 @@
+# =============================================================================
+# Certificate gestionado por cert-manager (OPCIONAL)
+# =============================================================================
+# Si usas cert-manager (recomendado), crea el Certificate en el mismo namespace
+# que el Gateway. cert-manager 1.14+ entiende Gateway API y emite/renueva el
+# Secret que referencia el Gateway.
+#
+# Requiere un ClusterIssuer pre-creado (ej. letsencrypt-prod con HTTP-01 o
+# DNS-01 challenge).
+#
+# Si NO usas cert-manager, deja este archivo fuera del kustomize/apply y copia
+# manualmente el Secret al namespace gateway-system.
+# =============================================================================
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: shop-tls
+  namespace: gateway-system
+  labels:
+    app.kubernetes.io/part-of: boutique
+    app.kubernetes.io/managed-by: ingress-to-gateway-demo
+spec:
+  # El Secret resultante. El Gateway lo referencia en listeners[].tls.certificateRefs
+  secretName: shop-tls
+
+  # Auto-renueva 30 días antes de expirar
+  renewBefore: 720h  # 30 días
+
+  # Duración estándar Let's Encrypt = 90 días
+  duration: 2160h    # 90 días
+
+  dnsNames:
+    - shop.example.com
+
+  # ClusterIssuer pre-existente. Ajusta el nombre al tuyo.
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+    group: cert-manager.io

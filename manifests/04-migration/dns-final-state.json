@@ -1,0 +1,45 @@
+{
+  "Comment": "Final state post-decommission: remove the ingress-nginx weighted record and the NGF weighted record. The remaining record is a simple alias to the NGF NLB.",
+  "Changes": [
+    {
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "ingress-nginx",
+        "Weight": 0,
+        "AliasTarget": {
+          "HostedZoneId": "<INGRESS_NLB_ZONE_ID>",
+          "DNSName": "<INGRESS_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    },
+    {
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "SetIdentifier": "nginx-gateway-fabric",
+        "Weight": 100,
+        "AliasTarget": {
+          "HostedZoneId": "<GATEWAY_NLB_ZONE_ID>",
+          "DNSName": "<GATEWAY_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    },
+    {
+      "Action": "CREATE",
+      "ResourceRecordSet": {
+        "Name": "shop.example.com.",
+        "Type": "A",
+        "AliasTarget": {
+          "HostedZoneId": "<GATEWAY_NLB_ZONE_ID>",
+          "DNSName": "<GATEWAY_NLB_HOSTNAME>",
+          "EvaluateTargetHealth": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+# Kustomization para Online Boutique
+#
+# Aplica el manifiesto upstream v0.10.2 y le hace los siguientes ajustes:
+# - Mueve todo al namespace `microservices`
+# - Remueve `frontend-external` (LoadBalancer directo) — el acceso público
+#   lo gestionamos a través de Ingress/Gateway
+# - Aplica labels consistentes
+#
+# Para fijar a una versión distinta del demo, cambiar el ref en `resources`.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: microservices
+
+# Manifiesto upstream (fija el tag, NO uses main para producción)
+resources:
+  - https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/v0.10.2/release/kubernetes-manifests.yaml
+
+# Labels comunes
+commonLabels:
+  app.kubernetes.io/part-of: boutique
+  app.kubernetes.io/managed-by: ingress-to-gateway-demo
+
+# Quitamos el LoadBalancer directo del frontend porque lo exponemos
+# vía Ingress / Gateway en otras carpetas
+patches:
+  - target:
+      kind: Service
+      name: frontend-external
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: frontend-external
