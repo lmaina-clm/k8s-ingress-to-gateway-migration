@@ -89,9 +89,20 @@ TMP=$(mktemp -d)
 # Comillas simples para que $TMP se expanda al ejecutar el trap, no al definirlo
 trap 'rm -rf "$TMP"' EXIT
 
-# Headers que se ignoran en la comparación porque son volátiles o esperados
-# diferentes entre los dos controllers
-IGNORE_HEADERS_REGEX='^(date|x-request-id|x-correlation-id|server|x-trace-id|set-cookie|etag|via|nel|report-to|cf-ray)'
+# Headers que se ignoran en la comparación porque son volátiles, esperados
+# diferentes entre los dos controllers, o diferencias conocidas y documentadas.
+#
+# Notas sobre headers documentados como "esperados distintos":
+# - `strict-transport-security`: ingress-nginx lo inyecta por defecto en HTTPS,
+#   NGF no. Ver docs/03-ingress-vs-gateway.md sección "Headers de seguridad".
+IGNORE_HEADERS_REGEX='^(date|x-request-id|x-correlation-id|server|x-trace-id|set-cookie|etag|via|nel|report-to|cf-ray|strict-transport-security)'
+
+# Paths donde la app sirve contenido dinámico distinto en cada request
+# (ej. recomendaciones aleatorias del frontend de Online Boutique). Para estos,
+# solo comparamos status code + headers, NO el body. Si quieres compararlos
+# todos, pasa COMPARE_DYNAMIC_BODY=1.
+DYNAMIC_BODY_PATHS_REGEX='^(/|/cart|/setCurrency)$'
+COMPARE_DYNAMIC_BODY="${COMPARE_DYNAMIC_BODY:-0}"
 
 fetch_to_files() {
   local nlb_ip="$1"
@@ -138,9 +149,11 @@ for path in "${PATHS[@]}"; do
     continue
   fi
 
-  # Caso 3: body diff
+  # Caso 3: body diff (saltado para paths con contenido dinámico, salvo override)
   body_diff=""
-  if ! diff -q "$TMP/ing_body" "$TMP/gw_body" >/dev/null 2>&1; then
+  if [[ "$path" =~ $DYNAMIC_BODY_PATHS_REGEX ]] && [ "$COMPARE_DYNAMIC_BODY" != "1" ]; then
+    : # skip body comparison for dynamic-content paths
+  elif ! diff -q "$TMP/ing_body" "$TMP/gw_body" >/dev/null 2>&1; then
     body_diff=$(diff <(cat "$TMP/ing_body") <(cat "$TMP/gw_body") | head -20 || true)
   fi
 

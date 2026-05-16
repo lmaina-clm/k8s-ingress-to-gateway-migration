@@ -67,7 +67,7 @@ curl -k --resolve shop.example.com:443:$(dig +short $GW_LB | head -1) \
 | `httproute-main.yaml` | El `HTTPRoute` principal (frontend) |
 | `httproute-redirect.yaml` | El `HTTPRoute` que hace HTTP → HTTPS |
 | `client-settings.yaml` | Policy NGF para body-size, timeouts (equivalente a anotaciones) |
-| `certificate.yaml` | (Opcional) Si usas cert-manager, define el `Certificate` aquí |
+| `examples/certificate.yaml.example` | Plantilla de `Certificate` de cert-manager. NO se aplica automáticamente con `kubectl apply -f manifests/03-gateway-api/` porque requiere cert-manager instalado. Copiar y adaptar si tu cluster lo tiene. |
 
 ## Equivalencia con el Ingress anterior
 

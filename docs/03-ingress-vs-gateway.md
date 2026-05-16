@@ -219,6 +219,40 @@ kubectl get httproute -n microservices boutique-route -o yaml | yq '.status'
 
 Esto te dice **exactamente** si tu route está activa o por qué no. En `ingress-nginx`, había que leer logs del controller.
 
+### 5. Headers de seguridad inyectados por defecto
+
+Diferencia **detectada en validación real** entre los dos data planes:
+
+| Header | ingress-nginx | NGF 2.x |
+|--------|---------------|---------|
+| `strict-transport-security` (HSTS) | Inyectado por defecto cuando hay TLS (`max-age=31536000; includeSubDomains`) | **NO** inyectado |
+| `x-frame-options` / `x-content-type-options` | Configurables vía `ConfigMap` | Vía `ResponseHeaderModifier` filter o policy |
+
+**Implicación**: si tu app dependía implícitamente del HSTS que `ingress-nginx` añadía, al migrar a NGF los clientes dejarán de recibirlo. Para preservar el comportamiento, agregar un filter al `HTTPRoute`:
+
+```yaml
+rules:
+  - filters:
+      - type: ResponseHeaderModifier
+        responseHeaderModifier:
+          add:
+            - name: Strict-Transport-Security
+              value: "max-age=31536000; includeSubDomains"
+    backendRefs:
+      - name: frontend
+        port: 80
+```
+
+### 6. Status code del redirect HTTP → HTTPS
+
+| Implementación | Status code default |
+|----------------|---------------------|
+| `ingress-nginx` con `force-ssl-redirect: "true"` | **308** (Permanent Redirect, preserva el método) |
+| NGF con `RequestRedirect` filter sin `statusCode` | **302** (Found, no preserva método) |
+| NGF con `statusCode: 301` (default en este repo) | **301** (Moved Permanently, no preserva método) |
+
+**Implicación**: si tus clientes envían POST/PUT a la URL HTTP esperando que se reenvíen como tal, el `308` los preserva. El `301`/`302` los convierten a `GET` en muchos clientes (especialmente legacy). Para replicar el comportamiento exacto de `ingress-nginx`, usar `statusCode: 308` en el `RequestRedirect` filter del Gateway.
+
 ## ¿Y si necesito algo que Gateway API no soporta nativamente?
 
 Tres caminos en orden de preferencia:
