@@ -51,7 +51,7 @@ kubectl get svc -n gateway-system
 
 ```bash
 GW_LB=$(kubectl get svc -n gateway-system \
-  -l gateway.nginx.org/gateway=boutique-gateway \
+  -l gateway.networking.k8s.io/gateway-name=boutique-gateway \
   -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
 
 # Sin DNS configurado todavía, simulamos el hostname:

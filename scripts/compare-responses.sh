@@ -56,7 +56,7 @@ fail() { echo -e "${RED}✗${NC} $*"; }
 ING_NLB=$(kubectl -n ingress-nginx get svc ingress-nginx-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 GW_NLB=$(kubectl -n gateway-system get svc \
-  -l gateway.nginx.org/gateway=boutique-gateway \
+  -l gateway.networking.k8s.io/gateway-name=boutique-gateway \
   -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 
 if [ -z "$ING_NLB" ]; then
@@ -64,7 +64,7 @@ if [ -z "$ING_NLB" ]; then
   exit 2
 fi
 if [ -z "$GW_NLB" ]; then
-  fail "No se encontró el NLB de NGF (svc con label gateway.nginx.org/gateway=boutique-gateway en ns gateway-system)"
+  fail "No se encontró el NLB de NGF (svc con label gateway.networking.k8s.io/gateway-name=boutique-gateway en ns gateway-system)"
   exit 2
 fi
 

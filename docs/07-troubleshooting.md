@@ -30,7 +30,7 @@ kubectl get pods -n gateway-system
 kubectl logs -n nginx-gateway -l app.kubernetes.io/name=nginx-gateway-fabric --tail=50
 
 # 8. Logs del data plane (NGINX)
-kubectl logs -n gateway-system -l gateway.nginx.org/gateway=boutique-gateway --tail=50
+kubectl logs -n gateway-system -l gateway.networking.k8s.io/gateway-name=boutique-gateway --tail=50
 ```
 
 El 80% de los problemas se detectan con uno de estos comandos.
@@ -117,7 +117,7 @@ kubectl describe httproute boutique-route -n microservices | grep -A3 ResolvedRe
 
 ```bash
 # 1. Ver logs del NGINX data plane
-kubectl logs -n gateway-system -l gateway.nginx.org/gateway=boutique-gateway --tail=100
+kubectl logs -n gateway-system -l gateway.networking.k8s.io/gateway-name=boutique-gateway --tail=100
 
 # 2. Ver endpoints del Service backend
 kubectl get endpoints -n microservices frontend
@@ -263,7 +263,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      gateway.nginx.org/gateway: boutique-gateway
+      gateway.networking.k8s.io/gateway-name: boutique-gateway
   endpoints:
     - port: metrics
       interval: 30s

@@ -167,7 +167,7 @@ kubectl delete namespace nginx-gateway
 5. **Obtener el hostname del NLB**:
    ```bash
    export GW_NLB=$(kubectl get svc -n gateway-system \
-     -l gateway.nginx.org/gateway=boutique-gateway \
+     -l gateway.networking.k8s.io/gateway-name=boutique-gateway \
      -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
    echo "Nuevo NLB: $GW_NLB"
    ```

@@ -93,7 +93,7 @@ else
   DNS_FILE="$REPO_ROOT/manifests/04-migration/dns-canary-100pct.json"
   TARGET_DESC="nginx-gateway-fabric"
   TARGET_NLB=$(kubectl -n gateway-system get svc \
-    -l gateway.nginx.org/gateway=boutique-gateway \
+    -l gateway.networking.k8s.io/gateway-name=boutique-gateway \
     -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 fi
 
