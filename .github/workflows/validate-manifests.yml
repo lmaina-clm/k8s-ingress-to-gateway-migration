@@ -114,3 +114,67 @@ jobs:
           # SC2001: `sed 's/^/.../'` cannot be rewritten as ${var//search/replace}
           #         because bash parameter expansion does not support ^ anchor
           shellcheck -e SC2086,SC1091,SC2034,SC2001 scripts/*.sh
+
+  i18n-drift-check:
+    name: i18n language drift check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check that .md and .es.md pairs are updated together
+        run: |
+          set -e
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Allow escape hatch via [skip i18n] in any commit message of the PR
+          if git log --format=%s "$BASE_SHA".."$HEAD_SHA" | grep -qF "[skip i18n]"; then
+            echo "::notice::i18n drift check skipped via [skip i18n] in commit message"
+            exit 0
+          fi
+
+          # Files changed in the PR (added, modified, renamed) — only Markdown
+          CHANGED=$(git diff --name-only --diff-filter=AMR "$BASE_SHA" "$HEAD_SHA" -- '*.md')
+          if [ -z "$CHANGED" ]; then
+            echo "No Markdown changes — nothing to check."
+            exit 0
+          fi
+
+          echo "Changed Markdown files:"
+          echo "$CHANGED" | sed 's/^/  - /'
+          echo
+
+          DRIFT=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if [[ "$f" == *.es.md ]]; then
+              PAIR="${f%.es.md}.md"
+            else
+              PAIR="${f%.md}.es.md"
+            fi
+
+            # Only enforce if the pair file exists in the repo (we don't force
+            # creating a translation just because someone added a new file)
+            if [ ! -f "$PAIR" ]; then
+              echo "::notice file=$f::No language pair exists yet ($PAIR not found). Skipping."
+              continue
+            fi
+
+            # If the pair exists but wasn't changed in this PR, it's drift
+            if ! echo "$CHANGED" | grep -qFx "$PAIR"; then
+              echo "::error file=$f::Modified without updating its language pair: $PAIR"
+              DRIFT=1
+            fi
+          done <<< "$CHANGED"
+
+          if [ "$DRIFT" -ne 0 ]; then
+            echo
+            echo "::error::Language drift detected. Update both *.md and *.es.md in the same PR,"
+            echo "::error::or include [skip i18n] in a commit message if the divergence is intentional."
+            exit 1
+          fi
+
+          echo "All Markdown pairs are in sync. ✓"
