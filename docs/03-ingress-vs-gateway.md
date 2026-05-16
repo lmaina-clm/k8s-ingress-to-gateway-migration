@@ -1,47 +1,49 @@
-# 03 — Ingress vs Gateway API: comparación conceptual y mapeo
+**English** | [Español](03-ingress-vs-gateway.es.md)
 
-Este documento es el de referencia rápida durante la migración. Si vienes de `ingress-nginx` y nunca tocaste Gateway API, **empieza aquí**.
+# 03 — Ingress vs Gateway API: conceptual comparison and mapping
 
-## El cambio mental: separación de responsabilidades
+This document is the quick reference during the migration. If you come from `ingress-nginx` and never touched Gateway API, **start here**.
 
-`Ingress` mezcla en un solo objeto cosas que pertenecen a personas distintas:
+## The mental shift: separation of responsibilities
 
-- **Cómo se expone** el clúster (tipo de LB, certificados, listeners) — responsabilidad del equipo de plataforma.
-- **Cómo se rutea** el tráfico a la aplicación — responsabilidad del equipo de aplicación.
+`Ingress` mixes into a single object things that belong to different people:
 
-Gateway API separa esto en **roles**:
+- **How the cluster is exposed** (LB type, certificates, listeners) — platform team's responsibility.
+- **How traffic is routed** to the application — application team's responsibility.
+
+Gateway API separates this into **roles**:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  Rol: Infraestructura (Cloud provider)                         │
-│  Recurso: GatewayClass                                         │
-│  Define: "Soy un controller capaz de servir gateways".         │
+│  Role: Infrastructure (Cloud provider)                         │
+│  Resource: GatewayClass                                        │
+│  Defines: "I'm a controller capable of serving gateways."      │
 └────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Rol: Plataforma / SRE                                         │
-│  Recurso: Gateway                                              │
-│  Define: "Quiero un punto de entrada en :443 con este cert,    │
-│           usando esta GatewayClass".                           │
+│  Role: Platform / SRE                                          │
+│  Resource: Gateway                                             │
+│  Defines: "I want an entry point at :443 with this cert,       │
+│            using this GatewayClass."                           │
 └────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Rol: Desarrollador de aplicación                              │
-│  Recurso: HTTPRoute                                            │
-│  Define: "Pega tu Gateway al servicio frontend cuando el       │
-│           path empiece con /api/cart".                         │
+│  Role: Application developer                                   │
+│  Resource: HTTPRoute                                           │
+│  Defines: "Attach your Gateway to the frontend service when    │
+│            the path starts with /api/cart."                    │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-En Ingress clásico, **todos editaban el mismo objeto**, lo que generaba conflictos y problemas de permisos. Gateway API permite que cada rol tenga RBAC propio.
+In classic Ingress, **everyone edited the same object**, which created conflicts and permissions issues. Gateway API allows each role to have its own RBAC.
 
-## Comparación lado a lado
+## Side-by-side comparison
 
-### Caso 1: Ingress simple
+### Case 1: Simple Ingress
 
-**Ingress clásico:**
+**Classic Ingress:**
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -69,10 +71,10 @@ spec:
                   number: 80
 ```
 
-**Equivalente en Gateway API:**
+**Gateway API equivalent:**
 
 ```yaml
-# El Gateway (vive en namespace de plataforma)
+# The Gateway (lives in the platform namespace)
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -108,7 +110,7 @@ spec:
             matchLabels:
               gateway-access: "true"
 ---
-# El HTTPRoute (vive en el namespace de la app)
+# The HTTPRoute (lives in the app namespace)
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -130,7 +132,7 @@ spec:
         - name: frontend
           port: 80
 ---
-# Y un HTTPRoute extra para forzar redirect HTTP → HTTPS
+# And an extra HTTPRoute to force HTTP → HTTPS redirect
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -151,42 +153,42 @@ spec:
             statusCode: 301
 ```
 
-Sí, son más líneas. Pero:
-- El `Gateway` lo escribes una vez y lo reutilizas en muchos `HTTPRoute`.
-- El redirect HTTP→HTTPS es explícito (en Ingress era una anotación oculta).
-- El allowedRoutes te protege de que cualquier dev cree un `HTTPRoute` apuntando a tu Gateway sin permiso.
+Yes, it's more lines. But:
+- You write the `Gateway` once and reuse it across many `HTTPRoute`s.
+- The HTTP→HTTPS redirect is explicit (in Ingress it was a hidden annotation).
+- `allowedRoutes` protects you from any dev creating an `HTTPRoute` pointing to your Gateway without permission.
 
-## Mapeo completo de anotaciones `ingress-nginx` → Gateway API
+## Complete `ingress-nginx` → Gateway API annotation mapping
 
-| Anotación `ingress-nginx` | Equivalente Gateway API | Notas |
-|---------------------------|--------------------------|-------|
-| `nginx.ingress.kubernetes.io/rewrite-target` | `HTTPRoute` filter `URLRewrite` | Nativo, mucho más limpio. |
-| `nginx.ingress.kubernetes.io/ssl-redirect` | `HTTPRoute` filter `RequestRedirect` con `scheme: https` | Explícito en una ruta. |
-| `nginx.ingress.kubernetes.io/force-ssl-redirect` | Igual ↑ | Mismo patrón. |
-| `nginx.ingress.kubernetes.io/use-regex` | `path.type: RegularExpression` | NGF lo soporta desde 2.3+. |
-| `nginx.ingress.kubernetes.io/backend-protocol` | `backendRefs` con `appProtocol` en el Service, o `GRPCRoute` para gRPC | Para gRPC, usa `GRPCRoute` (no `HTTPRoute`). |
-| `nginx.ingress.kubernetes.io/proxy-body-size` | `NginxProxy` resource (CRD de NGF) | Específico de NGF, no estándar de Gateway API. |
+| `ingress-nginx` annotation | Gateway API equivalent | Notes |
+|----------------------------|------------------------|-------|
+| `nginx.ingress.kubernetes.io/rewrite-target` | `HTTPRoute` filter `URLRewrite` | Native, much cleaner. |
+| `nginx.ingress.kubernetes.io/ssl-redirect` | `HTTPRoute` filter `RequestRedirect` with `scheme: https` | Explicit on a route. |
+| `nginx.ingress.kubernetes.io/force-ssl-redirect` | Same as above ↑ | Same pattern. |
+| `nginx.ingress.kubernetes.io/use-regex` | `path.type: RegularExpression` | NGF supports it since 2.3+. |
+| `nginx.ingress.kubernetes.io/backend-protocol` | `backendRefs` with `appProtocol` on the Service, or `GRPCRoute` for gRPC | For gRPC, use `GRPCRoute` (not `HTTPRoute`). |
+| `nginx.ingress.kubernetes.io/proxy-body-size` | `NginxProxy` resource (NGF CRD) | NGF-specific, not standard Gateway API. |
 | `nginx.ingress.kubernetes.io/proxy-read-timeout` | `NginxProxy` resource | Idem. |
 | `nginx.ingress.kubernetes.io/proxy-connect-timeout` | `NginxProxy` resource | Idem. |
-| `nginx.ingress.kubernetes.io/limit-rps` / `limit-rpm` | `ObservabilityPolicy` + `RateLimitPolicy` (NGF 2.4+) | Soportado desde 2.4. |
-| `nginx.ingress.kubernetes.io/auth-url` | No hay equivalente directo. Usar `ExtensionRef` o un sidecar (oauth2-proxy). | Cambio de paradigma. |
-| `nginx.ingress.kubernetes.io/auth-tls-secret` (mTLS cliente) | `Gateway.spec.listeners[].tls` + `FrontendTLS` (NGF 2.6+) | Nuevo en 2.6. |
-| `nginx.ingress.kubernetes.io/cors-*` | `HTTPRoute` con `ResponseHeaderModifier` filter o `NginxProxy` | Más manual. |
-| `nginx.ingress.kubernetes.io/server-snippet` | NO HAY equivalente. Custom snippets son antipattern en Gateway API. | Refactoriza a recursos nativos. |
-| `nginx.ingress.kubernetes.io/configuration-snippet` | NO HAY equivalente. | Idem. |
-| `nginx.ingress.kubernetes.io/canary` | Pesos en `backendRefs[].weight` | Mucho más limpio, parte del spec. |
-| `nginx.ingress.kubernetes.io/affinity` (sticky) | `SessionPersistence` policy (NGF 2.4+) | Sticky cookie soportado. |
-| `nginx.ingress.kubernetes.io/load-balance` | `BackendLBPolicy` (NGF 2.4+, custom) | Limited a round-robin/least-conn. |
+| `nginx.ingress.kubernetes.io/limit-rps` / `limit-rpm` | `ObservabilityPolicy` + `RateLimitPolicy` (NGF 2.4+) | Supported since 2.4. |
+| `nginx.ingress.kubernetes.io/auth-url` | No direct equivalent. Use `ExtensionRef` or a sidecar (oauth2-proxy). | Paradigm shift. |
+| `nginx.ingress.kubernetes.io/auth-tls-secret` (client mTLS) | `Gateway.spec.listeners[].tls` + `FrontendTLS` (NGF 2.6+) | New in 2.6. |
+| `nginx.ingress.kubernetes.io/cors-*` | `HTTPRoute` with `ResponseHeaderModifier` filter or `NginxProxy` | More manual. |
+| `nginx.ingress.kubernetes.io/server-snippet` | NO equivalent. Custom snippets are an antipattern in Gateway API. | Refactor to native resources. |
+| `nginx.ingress.kubernetes.io/configuration-snippet` | NO equivalent. | Idem. |
+| `nginx.ingress.kubernetes.io/canary` | Weights in `backendRefs[].weight` | Much cleaner, part of the spec. |
+| `nginx.ingress.kubernetes.io/affinity` (sticky) | `SessionPersistence` policy (NGF 2.4+) | Sticky cookie supported. |
+| `nginx.ingress.kubernetes.io/load-balance` | `BackendLBPolicy` (NGF 2.4+, custom) | Limited to round-robin/least-conn. |
 
-### Anotaciones sin equivalente directo
+### Annotations without direct equivalent
 
-Si tu Ingress tiene alguna de estas, **revisa antes de migrar**:
+If your Ingress has any of these, **review before migrating**:
 
-- `server-snippet` / `configuration-snippet` — Gateway API es deliberadamente estricto: no permite inyectar NGINX config arbitrario. Considéralo una oportunidad de refactor.
-- `auth-url` / `auth-signin` — Para esto, NGF tiene el filter `ExtensionRef` que apunta a un `ExternalAuth` policy, pero es complejidad adicional. La alternativa más común es **mover auth a la aplicación** o usar un sidecar (`oauth2-proxy`).
-- `permanent-redirect` con regex complejos — Funciona, pero la sintaxis cambia. Validar uno por uno.
+- `server-snippet` / `configuration-snippet` — Gateway API is deliberately strict: it doesn't allow injecting arbitrary NGINX config. Consider it a refactor opportunity.
+- `auth-url` / `auth-signin` — For this, NGF has the `ExtensionRef` filter that points to an `ExternalAuth` policy, but it's additional complexity. The most common alternative is to **move auth to the application** or use a sidecar (`oauth2-proxy`).
+- `permanent-redirect` with complex regex — Works, but the syntax changes. Validate one by one.
 
-## Diferencias semánticas importantes
+## Important semantic differences
 
 ### 1. `pathType`
 
@@ -194,41 +196,41 @@ Si tu Ingress tiene alguna de estas, **revisa antes de migrar**:
 |---------|-------------|
 | `Exact` | `Exact` |
 | `Prefix` | `PathPrefix` |
-| `ImplementationSpecific` | `RegularExpression` (más explícito) |
+| `ImplementationSpecific` | `RegularExpression` (more explicit) |
 
-**Trampa común**: `Prefix: /foo` en Ingress matchea `/foo` y `/foo/bar`. En Gateway API `PathPrefix: /foo` matchea **solo `/foo` y `/foo/...`** (con `/` después). Para matchear `/foobar`, necesitas regex. Este es un gotcha conocido — testéalo en el canary.
+**Common gotcha**: `Prefix: /foo` in Ingress matches `/foo` and `/foo/bar`. In Gateway API `PathPrefix: /foo` matches **only `/foo` and `/foo/...`** (with `/` after). To match `/foobar`, you need regex. This is a known gotcha — test it in the canary.
 
-### 2. Múltiples hosts
+### 2. Multiple hosts
 
-En Ingress: un objeto puede tener N hosts en `rules`. En Gateway API: un `HTTPRoute` también puede tener múltiples `hostnames`, **pero deben ser un subset de los hostnames del `Gateway`**. Si tu Ingress sirve `a.example.com` y `b.example.com`, el `Gateway` necesita ambos en `listeners`.
+In Ingress: one object can have N hosts in `rules`. In Gateway API: an `HTTPRoute` can also have multiple `hostnames`, **but they must be a subset of the `Gateway`'s hostnames**. If your Ingress serves `a.example.com` and `b.example.com`, the `Gateway` needs both in `listeners`.
 
-### 3. TLS por host
+### 3. TLS per host
 
-Ingress permite `tls[]` con un cert por host. Gateway API: cada `listener` tiene su propio cert. Si tienes 5 hosts con 5 certs, son 5 listeners (o uno con SNI y `certificateRefs` múltiple — soportado).
+Ingress allows `tls[]` with one cert per host. Gateway API: each `listener` has its own cert. If you have 5 hosts with 5 certs, that's 5 listeners (or one with SNI and multiple `certificateRefs` — supported).
 
-### 4. Status y observabilidad
+### 4. Status and observability
 
-Gateway API tiene un modelo de `status` mucho más rico. Cada recurso reporta:
-- `Accepted`: el controller lo entendió.
-- `Programmed`: el dataplane ya tiene la config aplicada.
-- `ResolvedRefs`: los `backendRefs` apuntan a servicios que existen.
+Gateway API has a much richer `status` model. Each resource reports:
+- `Accepted`: the controller understood it.
+- `Programmed`: the dataplane already has the config applied.
+- `ResolvedRefs`: the `backendRefs` point to services that exist.
 
 ```bash
 kubectl get httproute -n microservices boutique-route -o yaml | yq '.status'
 ```
 
-Esto te dice **exactamente** si tu route está activa o por qué no. En `ingress-nginx`, había que leer logs del controller.
+This tells you **exactly** if your route is active or why not. With `ingress-nginx`, you had to read controller logs.
 
-### 5. Headers de seguridad inyectados por defecto
+### 5. Security headers injected by default
 
-Diferencia **detectada en validación real** entre los dos data planes:
+Difference **detected during real validation** between the two data planes:
 
 | Header | ingress-nginx | NGF 2.x |
 |--------|---------------|---------|
-| `strict-transport-security` (HSTS) | Inyectado por defecto cuando hay TLS (`max-age=31536000; includeSubDomains`) | **NO** inyectado |
-| `x-frame-options` / `x-content-type-options` | Configurables vía `ConfigMap` | Vía `ResponseHeaderModifier` filter o policy |
+| `strict-transport-security` (HSTS) | Injected by default when TLS is on (`max-age=31536000; includeSubDomains`) | **NOT** injected |
+| `x-frame-options` / `x-content-type-options` | Configurable via `ConfigMap` | Via `ResponseHeaderModifier` filter or policy |
 
-**Implicación**: si tu app dependía implícitamente del HSTS que `ingress-nginx` añadía, al migrar a NGF los clientes dejarán de recibirlo. Para preservar el comportamiento, agregar un filter al `HTTPRoute`:
+**Implication**: if your app implicitly depended on the HSTS that `ingress-nginx` added, when migrating to NGF clients will stop receiving it. To preserve the behavior, add a filter to the `HTTPRoute`:
 
 ```yaml
 rules:
@@ -243,24 +245,24 @@ rules:
         port: 80
 ```
 
-### 6. Status code del redirect HTTP → HTTPS
+### 6. HTTP → HTTPS redirect status code
 
-| Implementación | Status code default |
+| Implementation | Default status code |
 |----------------|---------------------|
-| `ingress-nginx` con `force-ssl-redirect: "true"` | **308** (Permanent Redirect, preserva el método) |
-| NGF con `RequestRedirect` filter sin `statusCode` | **302** (Found, no preserva método) |
-| NGF con `statusCode: 301` (default en este repo) | **301** (Moved Permanently, no preserva método) |
+| `ingress-nginx` with `force-ssl-redirect: "true"` | **308** (Permanent Redirect, preserves the method) |
+| NGF with `RequestRedirect` filter without `statusCode` | **302** (Found, doesn't preserve method) |
+| NGF with `statusCode: 301` (default in this repo) | **301** (Moved Permanently, doesn't preserve method) |
 
-**Implicación**: si tus clientes envían POST/PUT a la URL HTTP esperando que se reenvíen como tal, el `308` los preserva. El `301`/`302` los convierten a `GET` en muchos clientes (especialmente legacy). Para replicar el comportamiento exacto de `ingress-nginx`, usar `statusCode: 308` en el `RequestRedirect` filter del Gateway.
+**Implication**: if your clients send POST/PUT to the HTTP URL expecting them to be forwarded as-is, `308` preserves them. `301`/`302` convert them to `GET` in many clients (especially legacy ones). To replicate the exact `ingress-nginx` behavior, use `statusCode: 308` in the `RequestRedirect` filter of the Gateway.
 
-## ¿Y si necesito algo que Gateway API no soporta nativamente?
+## What if I need something Gateway API doesn't support natively?
 
-Tres caminos en orden de preferencia:
+Three paths in order of preference:
 
-1. **Usar una policy estándar** (`BackendTLSPolicy`, `RateLimitPolicy`, etc.) — son parte del spec extendido.
-2. **Usar una policy específica de NGF** (`NginxProxy`, `ClientSettingsPolicy`, `ObservabilityPolicy`). Te ata a NGF pero es lo más cercano a las anotaciones de `ingress-nginx`.
-3. **Refactorizar a otra capa** (sidecar, service mesh, app code). A veces lo más sano.
+1. **Use a standard policy** (`BackendTLSPolicy`, `RateLimitPolicy`, etc.) — they're part of the extended spec.
+2. **Use an NGF-specific policy** (`NginxProxy`, `ClientSettingsPolicy`, `ObservabilityPolicy`). Ties you to NGF but is closest to `ingress-nginx` annotations.
+3. **Refactor to another layer** (sidecar, service mesh, app code). Sometimes the healthiest option.
 
 ---
 
-Siguiente: [`04-migration-runbook.md`](./04-migration-runbook.md) — el runbook ejecutable.
+Next: [`04-migration-runbook.md`](./04-migration-runbook.md) — the executable runbook.

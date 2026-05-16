@@ -1,98 +1,100 @@
-# 06 — Plan de Rollback
+**English** | [Español](06-rollback.es.md)
 
-> Un plan de migración sin plan de rollback no es un plan, es una apuesta.
+# 06 — Rollback Plan
 
-Este documento detalla **qué hacer si las cosas van mal** en cada fase. Está pensado para ejecutarse bajo presión: usa los comandos exactos, no improvises.
+> A migration plan without a rollback plan isn't a plan, it's a bet.
 
-## Principios
+This document details **what to do if things go wrong** at each phase. It's designed to be executed under pressure: use the exact commands, don't improvise.
 
-1. **Rollback rápido > rollback elegante.** Si dudas, revierte.
-2. **Documenta la decisión.** Por qué reverter, qué se observó. Te servirá para el siguiente intento.
-3. **No reviertas solo.** Avisa al equipo antes de tocar producción.
-4. **Mantén Git como fuente de verdad.** Si no está en Git, no existe el estado al que volver.
+## Principles
 
-## Matriz de rollback por fase
+1. **Fast rollback > elegant rollback.** When in doubt, revert.
+2. **Document the decision.** Why revert, what was observed. It'll help on the next attempt.
+3. **Don't revert alone.** Notify the team before touching production.
+4. **Keep Git as source of truth.** If it's not in Git, the state you'd roll back to doesn't exist.
 
-| Fase | ¿Reversible? | Tiempo | Impacto en usuarios |
-|------|--------------|--------|---------------------|
-| 1. Baseline | ✅ Trivial (nada cambió) | 0 min | 0 |
-| 2. Instalar NGF | ✅ Limpio | 5 min | 0 |
-| 3. Configurar Gateway | ✅ Limpio | 5 min | 0 |
-| 4. Validar paralelo | ✅ Limpio | 5 min | 0 |
-| 5. Canary DNS 10% | ✅ Rápido (vía DNS) | 1-2 min + TTL | ~10% de usuarios afectados durante TTL |
-| 6. Promoción gradual | ✅ Rápido (vía DNS) | 1-2 min + TTL | % igual al peso del canary |
-| 7. Drenar Ingress | ⚠️ Aún reversible | 5 min + TTL | Bajo, pero los usuarios con nuevas conexiones al Gateway pueden ver inconsistencia |
-| 8. Decomisionar | ❌ Costoso | 15-30 min | Posible downtime mientras se reinstala |
+## Rollback matrix per phase
 
-## Rollback FASE 2 — NGF instalado
+| Phase | Reversible? | Time | User impact |
+|-------|-------------|------|-------------|
+| 1. Baseline | ✅ Trivial (nothing changed) | 0 min | 0 |
+| 2. Install NGF | ✅ Clean | 5 min | 0 |
+| 3. Configure Gateway | ✅ Clean | 5 min | 0 |
+| 4. Validate in parallel | ✅ Clean | 5 min | 0 |
+| 5. Canary DNS 10% | ✅ Fast (via DNS) | 1-2 min + TTL | ~10% of users affected during TTL |
+| 6. Gradual promotion | ✅ Fast (via DNS) | 1-2 min + TTL | % equal to canary weight |
+| 7. Drain Ingress | ⚠️ Still reversible | 5 min + TTL | Low, but users with new connections to the Gateway can see inconsistency |
+| 8. Decommission | ❌ Costly | 15-30 min | Possible downtime while reinstalling |
 
-**Síntoma típico**: NGF no arranca, CRDs conflictan con algo existente, GatewayClass no se acepta.
+## Rollback PHASE 2 — NGF installed
+
+**Typical symptom**: NGF doesn't start, CRDs conflict with something existing, GatewayClass not accepted.
 
 ```bash
-# 1. Desinstalar NGF
+# 1. Uninstall NGF
 helm uninstall ngf -n nginx-gateway
 
-# 2. Eliminar CRDs de Gateway API (CUIDADO si tienes otras apps que las usen)
+# 2. Remove Gateway API CRDs (CAUTION if you have other apps using them)
 kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
 
-# 3. Eliminar namespaces
+# 3. Remove namespaces
 kubectl delete namespace nginx-gateway gateway-system 2>/dev/null
 
-# 4. Validar
-kubectl get gatewayclass    # debe estar vacío
-kubectl get crd | grep gateway.networking.k8s.io   # debe estar vacío
+# 4. Validate
+kubectl get gatewayclass    # should be empty
+kubectl get crd | grep gateway.networking.k8s.io   # should be empty
 ```
 
-**Validación post-rollback**: el tráfico vía `ingress-nginx` debe seguir intacto. Ejecutar `./scripts/validate-traffic.sh ingress`.
+**Post-rollback validation**: traffic via `ingress-nginx` should remain intact. Run `./scripts/validate-traffic.sh ingress`.
 
-## Rollback FASE 3 — Gateway creado
+## Rollback PHASE 3 — Gateway created
 
-**Síntoma típico**: el `Gateway` no llega a `Programmed`, NLB no se crea, errores en logs del control-plane.
+**Typical symptom**: the `Gateway` doesn't reach `Programmed`, NLB isn't created, errors in control-plane logs.
 
 ```bash
-# 1. Eliminar HTTPRoutes y Gateway
+# 1. Remove HTTPRoutes and Gateway
 kubectl delete -f manifests/03-gateway-api/
 
-# 2. Verificar que el NLB fue destruido
+# 2. Verify the NLB was destroyed
 aws elbv2 describe-load-balancers --region <region> \
   --query "LoadBalancers[?contains(LoadBalancerName,'k8s-gateway')]"
-# La lista debe estar vacía (puede tardar 1-2 min)
+# The list should be empty (can take 1-2 min)
 
-# 3. Conservar los CRDs y NGF instalados; el problema está en los recursos, no en el controller
+# 3. Keep CRDs and NGF installed; the problem is in the resources, not the controller
 ```
 
-**Validación**: NLB del Gateway destruido en AWS. El de `ingress-nginx` sigue intacto.
+**Validation**: Gateway NLB destroyed in AWS. The `ingress-nginx` one remains intact.
 
-## Rollback FASE 4 — Validación paralela
+## Rollback PHASE 4 — Parallel validation
 
-Aquí solo hiciste curls. Si encontraste problemas:
+Here you only did curls. If you found problems:
 
-- **Si el problema es semántico** (responses distintas entre Ingress y Gateway): corregir los `HTTPRoute` o anotaciones, **no revertir todavía**.
-- **Si el problema es del controller** (5xx, latencia alta): reverter como fase 3.
+- **If the problem is semantic** (different responses between Ingress and Gateway): fix the `HTTPRoute`s or annotations, **don't revert yet**.
+- **If the problem is the controller** (5xx, high latency): revert as in phase 3.
 
-## Rollback FASE 5 — Canary 10% activo
+## Rollback PHASE 5 — Canary 10% active
 
-**El más importante**. Aquí estás impactando usuarios reales.
+**The most important one**. Here you're affecting real users.
 
-### Trigger inmediato (sin pensar)
+### Immediate trigger (no thinking)
 
-- Error rate al NLB nuevo > 1% por más de 30 segundos.
-- Latencia p99 al NLB nuevo > 3x baseline.
-- Alertas en cascada en servicios downstream.
+- Error rate to the new NLB > 1% for more than 30 seconds.
+- p99 latency to the new NLB > 3x baseline.
+- Cascading alerts in downstream services.
 
-### Comando de pánico
+### Panic command
 
 ```bash
-# DNS de vuelta al 100% Ingress
+# DNS back to 100% Ingress
 aws route53 change-resource-record-sets \
   --hosted-zone-id $HOSTED_ZONE_ID \
   --change-batch file://manifests/04-migration/dns-rollback-100pct-ingress.json
 
-# Mientras DNS propaga (60s con TTL bajo), opcionalmente baja a 0 las replicas del data-plane
+# While DNS propagates (60s with low TTL), optionally scale data-plane replicas to 0
 kubectl scale deployment -n gateway-system nginx-boutique-gateway --replicas=0
 ```
 
-### Comunicación
+### Communication
 
 ```
 🚨 Migration rollback activated
@@ -104,112 +106,112 @@ kubectl scale deployment -n gateway-system nginx-boutique-gateway --replicas=0
 - Next action: <root cause analysis | retry | postmortem>
 ```
 
-Notificar canal de incidentes / on-call channel.
+Notify the incident channel / on-call channel.
 
-### Validación post-rollback
+### Post-rollback validation
 
 ```bash
-# 1. DNS revertido
+# 1. DNS reverted
 dig +short shop.example.com
 
-# 2. Tráfico volviendo al Ingress viejo
+# 2. Traffic returning to the old Ingress
 kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=20
 
-# 3. Error rate normalizado
+# 3. Error rate normalized
 ./scripts/validate-traffic.sh ingress
 ```
 
-## Rollback FASE 6 — Promoción gradual
+## Rollback PHASE 6 — Gradual promotion
 
-Idéntico a fase 5, pero el peso a restaurar es el del **paso anterior**, no el 0%.
+Identical to phase 5, but the weight to restore is the **previous step's**, not 0%.
 
 ```bash
-# Ej: estabas al 75% y quieres volver al 50%
+# E.g.: you were at 75% and want to go back to 50%
 aws route53 change-resource-record-sets \
   --hosted-zone-id $HOSTED_ZONE_ID \
   --change-batch file://manifests/04-migration/dns-canary-50pct.json
 ```
 
-Si los problemas son severos, **ve directo al 0% Gateway** (rollback total).
+If problems are severe, **go directly to 0% Gateway** (full rollback).
 
-## Rollback FASE 7 — Ingress drenando
+## Rollback PHASE 7 — Ingress draining
 
-Todavía es reversible **siempre que no hayas decomisionado el controller**.
+Still reversible **as long as you haven't decommissioned the controller**.
 
 ```bash
-# DNS de vuelta al Ingress
+# DNS back to the Ingress
 aws route53 change-resource-record-sets \
   --hosted-zone-id $HOSTED_ZONE_ID \
   --change-batch file://manifests/04-migration/dns-rollback-100pct-ingress.json
 ```
 
-Pero ojo: los clientes que ya conectaron al Gateway pueden tener **estado** (cookies de sesión emitidas por la app, no por el ingress). Si vuelven al Ingress viejo, **deberían** seguir funcionando (porque el estado lo maneja la app, no el ingress) — **pero esto debes validarlo en tu caso específico**. Si tu app usa cookies firmadas con secret específico al pod, esto es un problema independiente.
+But beware: clients that already connected to the Gateway may have **state** (session cookies issued by the app, not by the ingress). If they return to the old Ingress, they **should** keep working (because state is managed by the app, not the ingress) — **but you must validate this in your specific case**. If your app uses cookies signed with a pod-specific secret, that's a separate problem.
 
-## Rollback FASE 8 — Después de decomisionar
+## Rollback PHASE 8 — After decommissioning
 
-Aquí el rollback es **costoso**. Pasos:
+Here rollback is **costly**. Steps:
 
-### 1. Reinstalar `ingress-nginx`
+### 1. Reinstall `ingress-nginx`
 
 ```bash
-# Volver a aplicar la instalación
+# Reapply the installation
 ./scripts/install-ingress-nginx.sh
 ```
 
-Esperar ~5 min a que el controller esté Ready y el NLB se cree.
+Wait ~5 min for the controller to be Ready and the NLB to be created.
 
-### 2. Reaplicar Ingress objects
+### 2. Reapply Ingress objects
 
 ```bash
 kubectl apply -f manifests/02-ingress-nginx/ingress.yaml
 ```
 
-### 3. Obtener el hostname del nuevo NLB
+### 3. Get the new NLB hostname
 
 ```bash
 INGRESS_NLB=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "Nuevo Ingress NLB: $INGRESS_NLB"
+echo "New Ingress NLB: $INGRESS_NLB"
 ```
 
-### 4. Cambiar DNS
+### 4. Change DNS
 
 ```bash
-# Editar manifests/04-migration/dns-rollback-100pct-ingress.json
-# con el nuevo hostname y aplicar
+# Edit manifests/04-migration/dns-rollback-100pct-ingress.json
+# with the new hostname and apply
 ```
 
-### 5. Esperar propagación
+### 5. Wait for propagation
 
-Con TTL=60s, ~5 min de degradación parcial mientras DNS propaga.
+With TTL=60s, ~5 min of partial degradation while DNS propagates.
 
-**Impacto total estimado del rollback en esta fase**: 10-15 minutos donde un % del tráfico verá errores intermitentes.
+**Estimated total rollback impact at this phase**: 10-15 minutes where a % of traffic will see intermittent errors.
 
-## Cómo decidir reverter vs seguir adelante
+## How to decide: revert vs continue
 
-Cuadro de decisión rápido:
+Quick decision table:
 
-| Síntoma | Decisión |
+| Symptom | Decision |
 |---------|----------|
-| Error rate > 1% sostenido > 1 min | **Revertir inmediato** |
-| Error rate < 1% pero peor que baseline | Esperar 5 min. Si persiste, revertir. |
-| Latencia p99 > 2x baseline sostenido | **Revertir inmediato** |
-| Latencia p99 ~1.5x baseline | Probable problema esperable (NGF tarda en optimizarse). Esperar 10 min. |
-| Errores aislados en un endpoint específico | NO revertir el cambio entero. Investigar config del `HTTPRoute` específico. |
-| Cliente B2B se queja | Investigar — puede ser issue suyo (DNS hardcoded), no nuestro. |
-| Alerta de servicio downstream | Probable correlación, no causalidad. Investigar antes de revertir. |
-| "Algo se siente raro" | Esperar 5 min. Si la sensación persiste, revertir. La intuición de SREs es señal. |
+| Error rate > 1% sustained > 1 min | **Revert immediately** |
+| Error rate < 1% but worse than baseline | Wait 5 min. If it persists, revert. |
+| p99 latency > 2x baseline sustained | **Revert immediately** |
+| p99 latency ~1.5x baseline | Likely expected (NGF takes time to warm up). Wait 10 min. |
+| Isolated errors on a specific endpoint | DO NOT revert the whole change. Investigate the specific `HTTPRoute` config. |
+| B2B client complains | Investigate — could be their issue (hardcoded DNS), not ours. |
+| Downstream service alert | Likely correlation, not causation. Investigate before reverting. |
+| "Something feels off" | Wait 5 min. If the feeling persists, revert. SRE intuition is a signal. |
 
-## Script de rollback completo
+## Complete rollback script
 
-`scripts/rollback.sh` automatiza el rollback más comun (DNS al 100% Ingress). Pero **lee el script antes de usarlo en pánico** — entiende qué hace.
+`scripts/rollback.sh` automates the most common rollback (DNS to 100% Ingress). But **read the script before using it in panic** — understand what it does.
 
 ```bash
 ./scripts/rollback.sh --to ingress --hosted-zone-id Z123ABC --confirm
 ```
 
-El `--confirm` es obligatorio para evitar accidentes.
+The `--confirm` is mandatory to avoid accidents.
 
 ---
 
-Siguiente: [`07-troubleshooting.md`](./07-troubleshooting.md) — problemas comunes y diagnóstico.
+Next: [`07-troubleshooting.md`](./07-troubleshooting.md) — common problems and diagnosis.

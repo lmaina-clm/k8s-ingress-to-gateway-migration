@@ -1,88 +1,90 @@
+**English** | [Español](07-troubleshooting.es.md)
+
 # 07 — Troubleshooting
 
-Problemas que vas a encontrar (o que ya encontraste y por eso estás leyendo esto).
+Problems you'll encounter (or already encountered, which is why you're reading this).
 
-## Diagnóstico general
+## General diagnostics
 
-Antes de buscar tu problema específico, **siempre** ejecuta:
+Before looking for your specific problem, **always** run:
 
 ```bash
-# 1. ¿Los CRDs están?
+# 1. Are the CRDs there?
 kubectl get crd | grep gateway.networking.k8s.io
 
-# 2. ¿El control plane está sano?
+# 2. Is the control plane healthy?
 kubectl get pods -n nginx-gateway
 
-# 3. ¿El GatewayClass está aceptado?
+# 3. Is the GatewayClass accepted?
 kubectl describe gatewayclass nginx-gateway | grep -A5 Conditions
 
-# 4. ¿El Gateway está programado?
+# 4. Is the Gateway programmed?
 kubectl describe gateway -n gateway-system boutique-gateway
 
-# 5. ¿Los HTTPRoutes están aceptados?
+# 5. Are the HTTPRoutes accepted?
 kubectl get httproute -A -o wide
 kubectl describe httproute -n microservices boutique-route
 
-# 6. ¿El data plane está corriendo?
+# 6. Is the data plane running?
 kubectl get pods -n gateway-system
 
-# 7. Logs del control plane
+# 7. Control plane logs
 kubectl logs -n nginx-gateway -l app.kubernetes.io/name=nginx-gateway-fabric --tail=50
 
-# 8. Logs del data plane (NGINX)
+# 8. Data plane (NGINX) logs
 kubectl logs -n gateway-system -l gateway.networking.k8s.io/gateway-name=boutique-gateway --tail=50
 ```
 
-El 80% de los problemas se detectan con uno de estos comandos.
+80% of problems are caught by one of these commands.
 
-## Problemas comunes
+## Common problems
 
-### El `Gateway` se queda en `Programmed=False`
+### The `Gateway` is stuck in `Programmed=False`
 
-**Síntomas**:
+**Symptoms**:
 ```
 NAME                CLASS           ADDRESS   PROGRAMMED   AGE
 boutique-gateway    nginx-gateway             False        5m
 ```
 
-**Causas y soluciones**:
+**Causes and solutions**:
 
-1. **No hay GatewayClass**:
+1. **No GatewayClass**:
    ```bash
    kubectl get gatewayclass nginx-gateway
    ```
-   Si está vacío, NGF no está instalado. Volver a fase 2.
+   If empty, NGF isn't installed. Go back to phase 2.
 
-2. **Secret TLS no existe en el namespace correcto**:
+2. **TLS Secret doesn't exist in the correct namespace**:
    ```bash
    kubectl get secret -n gateway-system shop-tls
    ```
-   Solución: copiar el secret al namespace del Gateway, o usar `ReferenceGrant` para permitir referencia cross-namespace.
+   Solution: copy the secret to the Gateway's namespace, or use a `ReferenceGrant` to allow cross-namespace reference.
 
-3. **Conflicto de hostnames con otro Gateway**:
+3. **Hostname conflict with another Gateway**:
    ```bash
    kubectl get gateway -A
    ```
-   Si dos Gateways comparten el mismo hostname, NGF rechaza uno.
+   If two Gateways share the same hostname, NGF rejects one.
 
-4. **AWS Load Balancer Controller no responde**:
+4. **AWS Load Balancer Controller doesn't respond**:
    ```bash
    kubectl logs -n kube-system deployment/aws-load-balancer-controller --tail=50
    ```
-   Si hay errores de IAM o subnets, el NLB no se crea.
+   If there are IAM or subnet errors, the NLB isn't created.
 
-### `HTTPRoute` con `Accepted=False`
+### `HTTPRoute` with `Accepted=False`
 
-**Síntomas**:
+**Symptoms**:
 ```bash
 kubectl describe httproute boutique-route -n microservices
 # Conditions: Accepted=False
 ```
 
-**Causa común**: el `parentRef` apunta a un Gateway que no existe o que no permite routes desde ese namespace.
+**Common cause**: the `parentRef` points to a Gateway that doesn't exist or doesn't allow routes from that namespace.
 
 ```yaml
-# En el Gateway, revisar:
+# In the Gateway, review:
 spec:
   listeners:
     - name: https
@@ -94,51 +96,51 @@ spec:
               gateway-access: "true"
 ```
 
-Tu namespace `microservices` debe tener el label:
+Your `microservices` namespace must have the label:
 
 ```bash
 kubectl label namespace microservices gateway-access=true
 ```
 
-### `HTTPRoute` con `ResolvedRefs=False`
+### `HTTPRoute` with `ResolvedRefs=False`
 
-**Causa**: el `backendRef` apunta a un servicio que no existe o está en otro namespace sin `ReferenceGrant`.
+**Cause**: the `backendRef` points to a service that doesn't exist or is in another namespace without a `ReferenceGrant`.
 
 ```bash
 kubectl get service -n microservices frontend
 kubectl describe httproute boutique-route -n microservices | grep -A3 ResolvedRefs
 ```
 
-### Tráfico llega al Gateway pero responde 502/503
+### Traffic reaches the Gateway but returns 502/503
 
-**Síntomas**: `curl` al NLB → status 502.
+**Symptoms**: `curl` to the NLB → status 502.
 
-**Diagnóstico**:
+**Diagnosis**:
 
 ```bash
-# 1. Ver logs del NGINX data plane
+# 1. View the NGINX data plane logs
 kubectl logs -n gateway-system -l gateway.networking.k8s.io/gateway-name=boutique-gateway --tail=100
 
-# 2. Ver endpoints del Service backend
+# 2. View backend Service endpoints
 kubectl get endpoints -n microservices frontend
-# Si "ENDPOINTS" está vacío: el Service no tiene pods. Problema en el deployment.
+# If "ENDPOINTS" is empty: the Service has no pods. Problem in the deployment.
 
-# 3. Verificar que el pod del data plane puede alcanzar el pod del backend
+# 3. Verify the data plane pod can reach the backend pod
 kubectl exec -n gateway-system <data-plane-pod> -- \
   curl -v http://frontend.microservices.svc.cluster.local
 ```
 
-Causas típicas:
-- **NetworkPolicy restrictiva**: bloquea tráfico desde `gateway-system` hacia `microservices`. Agregar `NetworkPolicy` que lo permita.
-- **Service en puerto distinto**: el `HTTPRoute` apunta a `port: 80` pero el Service expone `port: 8080`.
-- **Backend caído**: el pod del frontend está crash-looping.
+Typical causes:
+- **Restrictive NetworkPolicy**: blocks traffic from `gateway-system` to `microservices`. Add a `NetworkPolicy` that allows it.
+- **Service on a different port**: the `HTTPRoute` points to `port: 80` but the Service exposes `port: 8080`.
+- **Backend down**: the frontend pod is crash-looping.
 
-### Tráfico llega al NLB del Gateway pero no al pod
+### Traffic reaches the Gateway NLB but doesn't reach the pod
 
-**Diagnóstico**:
+**Diagnosis**:
 
 ```bash
-# ¿El NLB tiene target healthy?
+# Does the NLB have healthy targets?
 TG_ARN=$(aws elbv2 describe-target-groups --region <region> \
   --load-balancer-arn $(aws elbv2 describe-load-balancers --region <region> \
     --query "LoadBalancers[?contains(LoadBalancerName,'k8s-gateway')].LoadBalancerArn" \
@@ -148,15 +150,15 @@ TG_ARN=$(aws elbv2 describe-target-groups --region <region> \
 aws elbv2 describe-target-health --target-group-arn $TG_ARN --region <region>
 ```
 
-Si los targets están `unhealthy`:
-- **Security Group del NLB no permite tráfico al puerto del nodeport/pod**.
-- **Health check del target group apunta a un path que devuelve 404**.
+If targets are `unhealthy`:
+- **The NLB Security Group doesn't allow traffic to the nodeport/pod port**.
+- **The target group health check points to a path that returns 404**.
 
-### `502 Bad Gateway` intermitente solo en tráfico real (no en `curl`)
+### Intermittent `502 Bad Gateway` only in real traffic (not in `curl`)
 
-Típicamente: **upstream keepalive timeout**. NGINX cierra una conexión persistente, pero el cliente intenta reusar.
+Typically: **upstream keepalive timeout**. NGINX closes a persistent connection, but the client tries to reuse it.
 
-**Solución**: configurar el `ClientSettingsPolicy` o el `NginxProxy` con timeouts ajustados.
+**Solution**: configure `ClientSettingsPolicy` or `NginxProxy` with adjusted timeouts.
 
 ```yaml
 apiVersion: gateway.nginx.org/v1alpha1
@@ -167,14 +169,14 @@ spec:
   ipFamily: dual
   telemetry:
     serviceName: boutique
-  # Ajustar timeouts si los defaults no encajan
+  # Adjust timeouts if the defaults don't fit
 ```
 
-### `502` solo en POST con body grande
+### `502` only on POST with large body
 
-Causa: `client_max_body_size` por defecto en NGF es 1MB.
+Cause: `client_max_body_size` default in NGF is 1MB.
 
-**Solución**:
+**Solution**:
 
 ```yaml
 apiVersion: gateway.nginx.org/v1alpha1
@@ -191,40 +193,40 @@ spec:
     maxSize: "10m"
 ```
 
-### Latencia p99 más alta que con `ingress-nginx`
+### Higher p99 latency than with `ingress-nginx`
 
-**Causas posibles**:
+**Possible causes**:
 
-1. **NGF aún no tiene el cache calentado** — primeros minutos. Esperar.
-2. **El NLB nuevo está en zonas de disponibilidad distintas que los pods**. Verificar:
+1. **NGF cache isn't warmed yet** — first minutes. Wait.
+2. **The new NLB is in different availability zones than the pods**. Verify:
    ```bash
    kubectl get svc -n gateway-system -o wide
-   # Comparar las zonas con las de los pods backend
+   # Compare the zones with those of the backend pods
    ```
-3. **Más hops**: NGF tiene control-plane separado del data-plane. Esto no afecta requests (no van por el control-plane), pero los TLS handshakes pueden ser ligeramente más lentos.
-4. **Buffering distinto**: `proxy_buffering` en NGF puede tener defaults distintos. Ajustar con `ProxySettingsPolicy` si tienes streaming.
+3. **More hops**: NGF has the control-plane separate from the data-plane. This doesn't affect requests (they don't go through the control-plane), but TLS handshakes can be slightly slower.
+4. **Different buffering**: `proxy_buffering` in NGF can have different defaults. Adjust with `ProxySettingsPolicy` if you have streaming.
 
-### El DNS no actualiza tras cambiar el weighted record
+### DNS doesn't update after changing the weighted record
 
 ```bash
-# Forzar resolución sin caché
+# Force resolution without cache
 dig +nocache shop.example.com
 
-# Probar contra varios resolvers
+# Test against multiple resolvers
 dig @8.8.8.8 shop.example.com
 dig @1.1.1.1 shop.example.com
 ```
 
-Si Route 53 ya tiene el nuevo valor pero los clientes no lo ven: **caché DNS local** del cliente. Esperar TTL.
+If Route 53 already has the new value but clients don't see it: **local DNS cache** on the client. Wait for TTL.
 
-### `cert-manager` no emite cert para el Gateway
+### `cert-manager` doesn't emit a cert for the Gateway
 
-Si usas cert-manager < v1.14, **no entiende `Gateway` aún**. Upgrade a 1.14+.
+If you use cert-manager < v1.14, **it doesn't understand `Gateway` yet**. Upgrade to 1.14+.
 
-Con cert-manager 1.14+:
+With cert-manager 1.14+:
 
 ```yaml
-# El Certificate apunta al Secret que referenciará el Gateway
+# The Certificate points to the Secret that the Gateway will reference
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -239,20 +241,20 @@ spec:
     kind: ClusterIssuer
 ```
 
-Y referencias el secret en el `Gateway.spec.listeners[].tls.certificateRefs`.
+And reference the secret in `Gateway.spec.listeners[].tls.certificateRefs`.
 
-## Observabilidad: nombres de métricas
+## Observability: metric names
 
-Mapeo de métricas Prometheus de `ingress-nginx` a NGF:
+Prometheus metric mapping from `ingress-nginx` to NGF:
 
 | `ingress-nginx` | NGINX Gateway Fabric |
 |-----------------|----------------------|
-| `nginx_ingress_controller_requests` | `nginxplus_http_requests_total` (con NGINX Plus) o `nginx_http_requests_total` |
+| `nginx_ingress_controller_requests` | `nginxplus_http_requests_total` (with NGINX Plus) or `nginx_http_requests_total` |
 | `nginx_ingress_controller_request_duration_seconds_bucket` | `nginxplus_http_request_duration_seconds_bucket` |
 | `nginx_ingress_controller_response_size_bucket` | `nginxplus_http_response_size_bytes_bucket` |
 | `nginx_ingress_controller_nginx_process_*` | `nginx_process_*` |
 
-Para tener métricas, NGF expone un endpoint Prometheus en el data plane. Configura tu `ServiceMonitor`:
+To get metrics, NGF exposes a Prometheus endpoint on the data plane. Configure your `ServiceMonitor`:
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -271,33 +273,33 @@ spec:
 
 ## Upgrade NGF 1.x → 2.x
 
-Si por algún motivo tienes NGF 1.x ya instalado: el upgrade requiere desinstalación y reinstalación porque cambia el modelo de instalación (separación control/data plane es 2.x).
+If for some reason you have NGF 1.x already installed: the upgrade requires uninstall and reinstall because the installation model changes (control/data plane separation is 2.x).
 
 ```bash
-# 1. Backup completo
+# 1. Full backup
 kubectl get gateway,httproute,grpcroute -A -o yaml > /tmp/ngf-backup.yaml
 
-# 2. Desinstalar 1.x (mantiene CRDs)
+# 2. Uninstall 1.x (keeps CRDs)
 helm uninstall nginx-gateway -n nginx-gateway
 
-# 3. Instalar 2.6.x
+# 3. Install 2.6.x
 ./scripts/install-nginx-gateway-fabric.sh
 
-# 4. Restaurar recursos
+# 4. Restore resources
 kubectl apply -f /tmp/ngf-backup.yaml
 ```
 
-**Importante**: durante este upgrade hay **downtime** del Gateway. Por eso lo mejor es hacerlo antes de la migración productiva, no como parte de ella.
+**Important**: during this upgrade there is **downtime** for the Gateway. That's why it's best to do it before the productive migration, not as part of it.
 
-## TLS en el NLB (ACM en lugar del Gateway)
+## TLS at the NLB (ACM instead of the Gateway)
 
-Si prefieres terminar TLS en el NLB con AWS ACM:
+If you prefer to terminate TLS at the NLB with AWS ACM:
 
-1. El listener del Gateway es **HTTP**, no HTTPS.
-2. El NLB se configura con anotaciones del AWS Load Balancer Controller para terminar TLS.
+1. The Gateway listener is **HTTP**, not HTTPS.
+2. The NLB is configured with AWS Load Balancer Controller annotations to terminate TLS.
 
 ```yaml
-# En el Service del data plane (NGF lo crea, pero puedes overridelo via Helm values):
+# On the data plane Service (NGF creates it, but you can override via Helm values):
 apiVersion: v1
 kind: Service
 metadata:
@@ -307,9 +309,9 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
 ```
 
-Pros: ACM auto-renueva, integración con AWS WAF.
-Contras: TLS termina en el NLB, así que el Gateway no ve el SNI ni puede hacer routing por hostname con cert distinto.
+Pros: ACM auto-renews, AWS WAF integration.
+Cons: TLS terminates at the NLB, so the Gateway doesn't see SNI nor can it route by hostname with different certs.
 
 ---
 
-Siguiente: [`08-faq.md`](./08-faq.md)
+Next: [`08-faq.md`](./08-faq.md)

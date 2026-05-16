@@ -1,31 +1,33 @@
-# 02 — Arquitectura y decisiones de diseño
+**English** | [Español](02-architecture.es.md)
 
-Este documento explica **el porqué** de las decisiones técnicas. Si solo quieres ejecutar la migración, salta a `04-migration-runbook.md`.
+# 02 — Architecture and design decisions
 
-## La aplicación: Online Boutique
+This document explains **the why** behind the technical decisions. If you just want to execute the migration, skip to `04-migration-runbook.md`.
 
-[Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo) es una app de e-commerce con 11 microservicios. La elegimos porque:
+## The application: Online Boutique
 
-- **Es realista**: múltiples lenguajes (Go, Python, Node.js, C#, Java), comunicación gRPC entre servicios, dependencias asíncronas.
-- **Es mantenida activamente** por Google.
-- **Tiene un único punto de entrada externo** (`frontend`), pero con comunicación interna rica que ejercita el cluster networking.
-- **No es trivial**: te enseña a manejar más que un `hello-world`.
+[Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo) is an e-commerce app with 11 microservices. We picked it because:
 
-### Topología
+- **It's realistic**: multiple languages (Go, Python, Node.js, C#, Java), gRPC communication between services, async dependencies.
+- **It's actively maintained** by Google.
+- **It has a single external entry point** (`frontend`), but with rich internal communication that exercises cluster networking.
+- **It's not trivial**: it teaches you to handle more than a `hello-world`.
+
+### Topology
 
 ```
                           External Traffic (HTTPS)
                                     │
                                     ▼
                         ┌─────────────────────┐
-                        │ Ingress / Gateway   │ ← Lo que vamos a migrar
+                        │ Ingress / Gateway   │ ← What we're going to migrate
                         └──────────┬──────────┘
                                    │
                                    ▼
                         ┌─────────────────────┐
                         │     frontend        │ (Go, HTTP)
                         └──────────┬──────────┘
-                                   │ gRPC interno
+                                   │ internal gRPC
         ┌──────────────┬───────────┼────────────┬──────────────┐
         ▼              ▼           ▼            ▼              ▼
    ┌─────────┐   ┌──────────┐ ┌─────────┐ ┌──────────┐  ┌───────────┐
@@ -37,7 +39,7 @@ Este documento explica **el porqué** de las decisiones técnicas. Si solo quier
                        ▼           ▼
                  ┌──────────┐ ┌──────────┐
                  │  redis   │ │ payment  │
-                 │ (datos)  │ │  (Node)  │
+                 │ (data)   │ │  (Node)  │
                  └──────────┘ └──────────┘
                                    │
                               ┌────┴────┐
@@ -48,110 +50,110 @@ Este documento explica **el porqué** de las decisiones técnicas. Si solo quier
                          └──────┘  └─────────┘
 ```
 
-**Lo importante para esta migración**: solo `frontend` se expone externamente. Todos los demás son `ClusterIP`. La migración solo toca el borde — el tráfico interno (gRPC entre servicios) no cambia.
+**What matters for this migration**: only `frontend` is exposed externally. All the rest are `ClusterIP`. The migration only touches the edge — internal traffic (gRPC between services) doesn't change.
 
-Esto es **representativo del 80% de las arquitecturas de microservicios en producción**: un BFF/gateway-de-aplicación que es el único expuesto, y el resto es interno. Si tu caso es distinto (varios servicios expuestos directamente), el patrón escala — solo agregas más `HTTPRoute`s.
+This is **representative of 80% of microservices architectures in production**: a BFF/app-gateway as the only exposed service, the rest internal. If your case is different (multiple services exposed directly), the pattern scales — just add more `HTTPRoute`s.
 
-## Decisión 1: ¿Por qué NGINX Gateway Fabric y no otra implementación?
+## Decision 1: Why NGINX Gateway Fabric and not another implementation?
 
-| Implementación | Pros | Contras |
-|----------------|------|---------|
-| **NGINX Gateway Fabric** | Misma familia que `ingress-nginx`, transición conceptual menor. NGINX como dataplane (lo que ya conocemos). Mantenido por F5/NGINX. Soporte comercial disponible. | Más joven que Istio. Algunas features avanzadas (ratelimit, sesión persistente) son recientes. |
-| **Istio** | Maduro, ecosistema enorme, service mesh + gateway en uno. | Mucho más complejo. Si solo necesitas el ingress, es over-engineering. |
-| **Envoy Gateway** | Envoy es el estándar de facto en service mesh. Excelente performance. | Curva de aprendizaje. Si nunca usaste Envoy, sumas complejidad. |
-| **Cilium Gateway API** | Si ya usas Cilium como CNI, integración natural. eBPF dataplane. | Requiere Cilium como CNI; no aplica si usas otro. |
-| **AWS Gateway API Controller** | Integración nativa con AWS VPC Lattice. | Lock-in con AWS, modelo de costos distinto. |
+| Implementation | Pros | Cons |
+|----------------|------|------|
+| **NGINX Gateway Fabric** | Same family as `ingress-nginx`, smaller conceptual transition. NGINX as dataplane (what we already know). Maintained by F5/NGINX. Commercial support available. | Younger than Istio. Some advanced features (ratelimit, session persistence) are recent. |
+| **Istio** | Mature, huge ecosystem, service mesh + gateway in one. | Much more complex. If you only need ingress, it's over-engineering. |
+| **Envoy Gateway** | Envoy is the de facto standard in service mesh. Excellent performance. | Learning curve. If you've never used Envoy, you add complexity. |
+| **Cilium Gateway API** | If you already use Cilium as CNI, natural integration. eBPF dataplane. | Requires Cilium as CNI; doesn't apply if you use another. |
+| **AWS Gateway API Controller** | Native integration with AWS VPC Lattice. | AWS lock-in, different cost model. |
 
-**Para un equipo que viene de `ingress-nginx`, NGF es la fricción mínima**: misma compañía, mismo dataplane, mismas mental models de NGINX (workers, upstreams, etc.). Las anotaciones cambian, pero el comportamiento subyacente es predecible.
+**For a team coming from `ingress-nginx`, NGF is minimum friction**: same company, same dataplane, same NGINX mental models (workers, upstreams, etc.). Annotations change, but underlying behavior is predictable.
 
-## Decisión 2: Estrategia de coexistencia (la clave del zero-downtime)
+## Decision 2: Coexistence strategy (the key to zero-downtime)
 
-Hay tres enfoques posibles:
+Three possible approaches:
 
-### A) Big-bang: borrar Ingress y aplicar Gateway
+### A) Big-bang: delete Ingress and apply Gateway
 
-❌ **No.** Implica downtime garantizado mientras el nuevo controller se inicializa y el NLB se reaprovisiona. Imposible de hacer zero-downtime.
+❌ **No.** Implies guaranteed downtime while the new controller initializes and the NLB is reprovisioned. Impossible to do zero-downtime.
 
-### B) In-place: mismo controller sirve Ingress y Gateway
+### B) In-place: same controller serves Ingress and Gateway
 
-❌ **No funciona con NGF.** NGF solo entiende Gateway API. `ingress-nginx` solo entiende Ingress. Son binarios distintos.
+❌ **Doesn't work with NGF.** NGF only understands Gateway API. `ingress-nginx` only understands Ingress. They are different binaries.
 
-### C) Coexistencia con dos controllers en paralelo ← **lo que hacemos**
+### C) Coexistence with two controllers in parallel ← **what we do**
 
-✅ Ambos controllers corren al mismo tiempo, con LoadBalancers separados. Los `Ingress` los sirve uno, los `HTTPRoute` el otro. El cutover se hace **fuera del clúster**, a nivel DNS.
+✅ Both controllers run at the same time, with separate LoadBalancers. `Ingress` are served by one, `HTTPRoute` by the other. The cutover happens **outside the cluster**, at the DNS level.
 
 ```
          dns.example.com
                 │
-                ├─ (durante coexistencia) → Route 53 weighted records
+                ├─ (during coexistence) → Route 53 weighted records
                 │       ├─ 90% → NLB-A (ingress-nginx)
                 │       └─ 10% → NLB-B (nginx-gateway-fabric)
                 │
                 └─ (post-cutover) → 100% → NLB-B
 ```
 
-Ventajas:
-- **Rollback inmediato** revirtiendo el DNS (limitado por TTL).
-- **Tráfico canary controlado** desde el primer momento.
-- **Ambos sistemas observables** simultáneamente para comparar.
+Advantages:
+- **Immediate rollback** by reverting DNS (limited by TTL).
+- **Controlled canary traffic** from the start.
+- **Both systems observable** simultaneously to compare.
 
-Desventaja:
-- Costo de un NLB extra durante la ventana de migración (~$20/mes en us-east-1, prorrateado a días).
-- Más complejidad operativa durante 1-2 semanas.
+Disadvantage:
+- Cost of one extra NLB during the migration window (~$20/month in us-east-1, prorated to days).
+- More operational complexity for 1-2 weeks.
 
-El costo es trivial comparado con un incidente de downtime.
+The cost is trivial compared to a downtime incident.
 
-## Decisión 3: Modelo de namespaces
+## Decision 3: Namespace model
 
-NGF crea el data-plane (NGINX pods) dinámicamente cuando creas un `Gateway`. Por default, los crea en el **mismo namespace que el `Gateway`**. Recomendación:
+NGF creates the data-plane (NGINX pods) dynamically when you create a `Gateway`. By default, it creates them in the **same namespace as the `Gateway`**. Recommendation:
 
-- **`nginx-gateway`** — namespace del control-plane de NGF (lo crea Helm).
-- **`gateway-system`** — namespace donde vive el recurso `Gateway` y su data-plane asociado.
-- **`microservices`** — namespace de la aplicación, donde viven los `HTTPRoute` (con `ParentRefs` cross-namespace al Gateway).
+- **`nginx-gateway`** — NGF control-plane namespace (created by Helm).
+- **`gateway-system`** — namespace where the `Gateway` resource and its associated data-plane live.
+- **`microservices`** — application namespace, where the `HTTPRoute`s live (with cross-namespace `ParentRefs` to the Gateway).
 
-Esto separa responsabilidades:
-- Equipo de plataforma controla `gateway-system`.
-- Equipo de aplicación controla sus `HTTPRoute` en `microservices`.
+This separates responsibilities:
+- Platform team controls `gateway-system`.
+- Application team controls their `HTTPRoute`s in `microservices`.
 
-El acceso cross-namespace se otorga vía `ReferenceGrant` — Gateway API requiere consentimiento explícito.
+Cross-namespace access is granted via `ReferenceGrant` — Gateway API requires explicit consent.
 
-## Decisión 4: ¿Qué hacemos con TLS?
+## Decision 4: What do we do with TLS?
 
-Tres opciones para terminar TLS:
+Three options to terminate TLS:
 
-| Opción | Donde termina TLS | Cuándo usarla |
-|--------|-------------------|---------------|
-| Pass-through al pod | En el pod (TCP route) | Cuando necesitas mTLS de extremo a extremo. |
-| **Termina en el Gateway** (recomendado por defecto) | En NGF | Caso general; certificados en `Secret`s K8s o cert-manager. |
-| Termina en el NLB | En AWS, vía ACM | Si quieres ACM e integración con AWS WAF. |
+| Option | Where TLS terminates | When to use it |
+|--------|----------------------|----------------|
+| Pass-through to the pod | At the pod (TCP route) | When you need end-to-end mTLS. |
+| **Terminate at the Gateway** (recommended default) | At NGF | General case; certificates in K8s `Secret`s or cert-manager. |
+| Terminate at the NLB | In AWS, via ACM | If you want ACM and AWS WAF integration. |
 
-Este repo asume **terminación en el Gateway** porque es la opción más portable y replica lo que normalmente hacía `ingress-nginx`. Si terminas en el NLB con ACM, los manifiestos son ligeramente distintos — ver sección "TLS en el NLB" en `07-troubleshooting.md`.
+This repo assumes **termination at the Gateway** because it's the most portable option and replicates what `ingress-nginx` normally did. If you terminate at the NLB with ACM, the manifests are slightly different — see the "TLS at the NLB" section in `07-troubleshooting.md`.
 
-## Decisión 5: Cómo mapeamos Ingress → HTTPRoute
+## Decision 5: How we map Ingress → HTTPRoute
 
-Online Boutique tiene un solo Ingress que enruta todo a `frontend`. Eso lo hace un caso simple, pero documentamos el mapeo general:
+Online Boutique has a single Ingress that routes everything to `frontend`. That makes it a simple case, but we document the general mapping:
 
-| Concepto Ingress | Equivalente Gateway API |
-|------------------|-------------------------|
+| Ingress concept | Gateway API equivalent |
+|-----------------|------------------------|
 | `kind: Ingress` | `kind: HTTPRoute` |
-| `spec.ingressClassName: nginx` | `spec.parentRefs[].name` (apunta a `Gateway`) |
-| `spec.tls[]` (cert) | Configurado en `Gateway.spec.listeners[].tls` |
+| `spec.ingressClassName: nginx` | `spec.parentRefs[].name` (points to `Gateway`) |
+| `spec.tls[]` (cert) | Configured in `Gateway.spec.listeners[].tls` |
 | `spec.rules[].host` | `HTTPRoute.spec.hostnames[]` |
 | `spec.rules[].http.paths[]` | `HTTPRoute.spec.rules[].matches[]` |
 | `path.backend.service` | `rules[].backendRefs[]` |
-| Anotación `rewrite-target` | Filter `URLRewrite` |
-| Anotación `force-ssl-redirect` | Listener HTTP con `HTTPRoute` que hace redirect |
-| Anotación `proxy-body-size` | `NginxProxy` resource (NGF-específico) |
-| Anotación `auth-url` | No tiene equivalente directo; usar `ExtensionRef` |
+| `rewrite-target` annotation | `URLRewrite` filter |
+| `force-ssl-redirect` annotation | HTTP listener with `HTTPRoute` doing redirect |
+| `proxy-body-size` annotation | `NginxProxy` resource (NGF-specific) |
+| `auth-url` annotation | No direct equivalent; use `ExtensionRef` |
 
-La tabla completa con todas las anotaciones de `ingress-nginx` está en `03-ingress-vs-gateway.md`.
+The complete table with all `ingress-nginx` annotations is in `03-ingress-vs-gateway.md`.
 
-## Lo que NO cubrimos en esta migración (deliberadamente)
+## What we DON'T cover in this migration (deliberately)
 
-- **Service mesh interno** — Si quieres mTLS entre microservicios, ese es un proyecto aparte. NGF puede ser tu ingress sin tocar lo interno.
-- **API Gateway L7 features avanzadas** (rate limiting per-user, JWT validation con introspection). Algunas están en NGF 2.4+, otras necesitan un API Gateway dedicado (Kong, Apigee) detrás del Gateway K8s.
-- **Multi-cluster routing** — Posible con Gateway API + Submariner/Linkerd multi-cluster, pero fuera de scope.
+- **Internal service mesh** — If you want mTLS between microservices, that's a separate project. NGF can be your ingress without touching the internal traffic.
+- **Advanced L7 API Gateway features** (per-user rate limiting, JWT validation with introspection). Some are in NGF 2.4+, others need a dedicated API Gateway (Kong, Apigee) behind the K8s Gateway.
+- **Multi-cluster routing** — Possible with Gateway API + Submariner/Linkerd multi-cluster, but out of scope.
 
 ---
 
-Siguiente: [`03-ingress-vs-gateway.md`](./03-ingress-vs-gateway.md) — el mapeo conceptual completo entre los dos mundos.
+Next: [`03-ingress-vs-gateway.md`](./03-ingress-vs-gateway.md) — the complete conceptual mapping between the two worlds.

@@ -1,130 +1,132 @@
-# 05 — Análisis de zero-downtime
+**English** | [Español](05-zero-downtime.es.md)
 
-Este documento responde la pregunta del millón: **¿realmente se puede migrar de Ingress a Gateway API sin downtime?**
+# 05 — Zero-downtime analysis
 
-**Respuesta corta**: Sí, en la mayoría de los casos. Pero hay un puñado de escenarios donde **es imposible** o requiere un tradeoff. Léelos antes de prometérselo a alguien.
+This document answers the million-dollar question: **can you really migrate from Ingress to Gateway API without downtime?**
 
-## ¿Qué cuenta como "downtime"?
+**Short answer**: Yes, in most cases. But there are a handful of scenarios where **it's impossible** or requires a tradeoff. Read them before promising it to anyone.
 
-Definamos términos. "Zero-downtime" puede significar cosas distintas:
+## What counts as "downtime"?
 
-| Definición | Estricta | Práctica |
-|------------|----------|----------|
-| Disponibilidad | Ningún request 5xx durante la migración. | < 0.01% de error rate, dentro del SLO. |
-| Latencia | p99 nunca aumenta > 10%. | p99 puntual puede subir 2x por <1 min. |
-| Sesiones | Ningún usuario es deslogeado. | Pocos usuarios reconectan (clientes resilientes). |
-| Conexiones long-lived | Websockets/gRPC streams ininterrumpidos. | Reconexiones automáticas del cliente OK. |
+Let's define terms. "Zero-downtime" can mean different things:
 
-**La definición "práctica" es alcanzable.** La "estricta" requiere supuestos muy fuertes (clientes perfectos, DNS perfecto). Sé honesto con tus stakeholders sobre cuál estás prometiendo.
+| Definition | Strict | Practical |
+|------------|--------|-----------|
+| Availability | No 5xx requests during the migration. | < 0.01% error rate, within SLO. |
+| Latency | p99 never increases > 10%. | p99 spike can rise 2x for <1 min. |
+| Sessions | No user is logged out. | Few users reconnect (resilient clients). |
+| Long-lived connections | Websockets/gRPC streams uninterrupted. | Automatic client reconnection OK. |
 
-## ¿Por qué la estrategia con dos controllers paralelos funciona?
+**The "practical" definition is achievable.** The "strict" one requires very strong assumptions (perfect clients, perfect DNS). Be honest with your stakeholders about which one you're promising.
 
-El insight clave: **`ingress-nginx` y `nginx-gateway-fabric` son dos controllers independientes**, con:
-- Binarios distintos.
-- `IngressClass` vs `GatewayClass` distintos.
-- LoadBalancers distintos (NLBs separados en AWS).
-- Pods distintos en namespaces distintos.
+## Why does the strategy with two parallel controllers work?
 
-No compiten por recursos. No se interfieren. Cada uno sirve **sus propios recursos** (Ingress vs HTTPRoute) y los demás los ignora.
+The key insight: **`ingress-nginx` and `nginx-gateway-fabric` are two independent controllers**, with:
+- Different binaries.
+- Different `IngressClass` vs `GatewayClass`.
+- Different LoadBalancers (separate NLBs in AWS).
+- Different pods in different namespaces.
 
-Esto significa que **agregar el segundo controller no afecta al primero**. El único momento donde el tráfico real cambia es cuando modificas DNS — y eso es **fuera del clúster**, controlable y reversible.
+They don't compete for resources. They don't interfere. Each one serves **its own resources** (Ingress vs HTTPRoute) and ignores the others.
 
-## Los 4 riesgos reales
+This means **adding the second controller doesn't affect the first**. The only moment real traffic changes is when you modify DNS — and that's **outside the cluster**, controllable and reversible.
 
-### Riesgo 1: TTL del DNS
+## The 4 real risks
 
-**El problema**: si tu DNS tiene TTL=3600s y haces el cambio, durante una hora algunos clientes seguirán resolviendo al NLB viejo. Si lo decomisionas antes → downtime para esos clientes.
+### Risk 1: DNS TTL
 
-**Mitigación**:
-- **Bajar TTL 24h antes del cambio** a 60s (o menos).
-- **Esperar 5×TTL antes de decomisionar** el viejo. Idealmente más.
-- **Algunos clientes (mobile apps, bots) ignoran TTL** y cachean por horas. Para esos no hay solución que no sea esperar más.
+**The problem**: if your DNS has TTL=3600s and you make the change, for an hour some clients will keep resolving to the old NLB. If you decommission before that → downtime for those clients.
 
-**Impacto residual**: 0.01% - 1% de tráfico, dependiendo de tus clientes. Si tu app tiene retries automáticos, los usuarios no lo notan.
+**Mitigation**:
+- **Lower TTL 24h before the change** to 60s (or less).
+- **Wait 5×TTL before decommissioning** the old one. Ideally more.
+- **Some clients (mobile apps, bots) ignore TTL** and cache for hours. For those, there's no solution other than waiting more.
 
-### Riesgo 2: Conexiones HTTP long-lived
+**Residual impact**: 0.01% - 1% of traffic, depending on your clients. If your app has automatic retries, users don't notice.
 
-**El problema**: HTTP/1.1 keep-alive permite reusar TCP sockets por minutos/horas. HTTP/2 multiplexa requests sobre una sola conexión persistente. Una vez establecida, **un cambio de DNS no afecta esa conexión** — sigue yendo al NLB viejo hasta que se cierre.
+### Risk 2: Long-lived HTTP connections
 
-**Mitigación**:
-- **El NLB del Ingress sigue respondiendo** durante la coexistencia. Los clientes con conexiones abiertas siguen funcionando.
-- **Forzar cierre**: hacer un `kubectl rollout restart deployment ingress-nginx-controller` cierra las conexiones del lado del servidor, los clientes reconectan al DNS actual.
-- **Esperar timeouts naturales**: la mayoría de clientes cierran tras ~60s de inactividad. Conexiones de larga duración tienen el problema siguiente.
+**The problem**: HTTP/1.1 keep-alive allows reusing TCP sockets for minutes/hours. HTTP/2 multiplexes requests over a single persistent connection. Once established, **a DNS change doesn't affect that connection** — it keeps going to the old NLB until it closes.
 
-### Riesgo 3: Websockets y gRPC streams
+**Mitigation**:
+- **The Ingress NLB keeps responding** during coexistence. Clients with open connections keep working.
+- **Force close**: doing a `kubectl rollout restart deployment ingress-nginx-controller` closes connections from the server side; clients reconnect to current DNS.
+- **Wait for natural timeouts**: most clients close after ~60s of inactivity. Long-duration connections have the next problem.
 
-**El problema**: una conexión websocket o gRPC server-streaming puede durar **horas o días**. Cambiar DNS no la afecta. Decomisionar el Ingress sí, **abruptamente**.
+### Risk 3: Websockets and gRPC streams
 
-**Esto es lo más cerca a "downtime real"** durante la migración.
+**The problem**: a websocket or gRPC server-streaming connection can last **hours or days**. DNS changes don't affect it. Decommissioning the Ingress does, **abruptly**.
 
-**Mitigaciones por orden de complejidad**:
+**This is the closest thing to "real downtime"** during the migration.
 
-1. **Si tu cliente reconecta automáticamente con backoff** (lo correcto en cualquier app moderna): no hay problema. Cuando cierres el Ingress, los clientes reconectan al DNS actual (que ya apunta al Gateway).
+**Mitigations in order of complexity**:
 
-2. **Drenar progresivamente antes de cerrar**: hacer scale-down del `ingress-nginx-controller` no es óptimo (NLB termina conexiones bruscamente). Mejor: reducir replicas a 1 y forzar terminación con `preStop` hook que `nginx -s quit` (graceful drain). El NLB sacará de rotación los pods sin réplicas.
+1. **If your client reconnects automatically with backoff** (the right thing in any modern app): no problem. When you close the Ingress, clients reconnect to current DNS (which already points to the Gateway).
 
-3. **Si tienes clientes que NO reconectan** (legacy, hardware): tienes que coordinar el corte con esos clientes. No es zero-downtime real para ellos.
+2. **Drain progressively before closing**: scaling down `ingress-nginx-controller` isn't optimal (NLB terminates connections abruptly). Better: reduce replicas to 1 and force termination with a `preStop` hook that does `nginx -s quit` (graceful drain). The NLB will take pods out of rotation without replicas.
 
-### Riesgo 4: Diferencias semánticas no detectadas
+3. **If you have clients that DON'T reconnect** (legacy, hardware): you have to coordinate the cutover with those clients. It's not real zero-downtime for them.
 
-**El problema**: Gateway API se comporta ligeramente distinto a Ingress en algunos casos sutiles. Si tu app depende de un comportamiento específico, el cambio puede romper cosas **sin error 5xx** — solo bugs sutiles.
+### Risk 4: Undetected semantic differences
 
-**Ejemplos reales que hemos visto**:
+**The problem**: Gateway API behaves slightly differently from Ingress in some subtle cases. If your app depends on a specific behavior, the change can break things **without a 5xx error** — just subtle bugs.
 
-- **`Prefix` semantics**: `Prefix: /api` en Ingress matchea `/api`, `/api/`, `/api/v1`, **y también `/apiv1`** (esto último depende del controller). En Gateway API `PathPrefix: /api` matchea `/api`, `/api/`, `/api/v1` pero **NO** `/apiv1`. Si tu cliente usa el path mal escrito, dejará de funcionar.
+**Real examples we've seen**:
 
-- **Headers reescritos**: `ingress-nginx` agrega `X-Forwarded-For`, `X-Real-IP`. NGF también, pero la sintaxis exacta puede diferir (especialmente si tienes proxies en cadena).
+- **`Prefix` semantics**: `Prefix: /api` in Ingress matches `/api`, `/api/`, `/api/v1`, **and also `/apiv1`** (the latter depends on the controller). In Gateway API `PathPrefix: /api` matches `/api`, `/api/`, `/api/v1` but **NOT** `/apiv1`. If your client uses the misspelled path, it'll stop working.
 
-- **gRPC**: si tu Ingress tenía `backend-protocol: GRPC`, en Gateway API necesitas un `GRPCRoute` (no `HTTPRoute`). Usar `HTTPRoute` para gRPC parece funcionar pero falla en casos edge (trailing headers, streaming).
+- **Rewritten headers**: `ingress-nginx` adds `X-Forwarded-For`, `X-Real-IP`. NGF too, but the exact syntax can differ (especially with proxies in chain).
 
-- **CORS**: si las anotaciones de CORS de `ingress-nginx` se traducen a `ResponseHeaderModifier`, las reglas pueden no ser idénticas (especialmente para preflights).
+- **gRPC**: if your Ingress had `backend-protocol: GRPC`, in Gateway API you need a `GRPCRoute` (not an `HTTPRoute`). Using `HTTPRoute` for gRPC seems to work but fails in edge cases (trailing headers, streaming).
 
-**Mitigación**:
-- `scripts/compare-responses.sh` hace diff de respuestas entre los dos NLBs **para una lista de paths**. Asegúrate de que esa lista cubre tus endpoints críticos.
-- **Canary largo**: no pases del 10% en menos de 1 hora. Da tiempo a que las diferencias sutiles aparezcan en métricas.
+- **CORS**: if `ingress-nginx` CORS annotations are translated to `ResponseHeaderModifier`, the rules might not be identical (especially for preflights).
 
-## Escenarios donde NO se puede hacer zero-downtime
+**Mitigation**:
+- `scripts/compare-responses.sh` diffs responses between the two NLBs **for a list of paths**. Make sure that list covers your critical endpoints.
+- **Long canary**: don't pass 10% in less than 1 hour. Give subtle differences time to show up in metrics.
 
-Sé honesto. Estos escenarios existen:
+## Scenarios where you CAN'T do zero-downtime
 
-### Escenario A: Clientes con DNS hardcoded a una IP
+Be honest. These scenarios exist:
 
-Si tu app es consumida por integraciones B2B que **hardcodearon la IP del NLB** en su firewall, el cambio de NLB ES un cambio de IP. Cero-downtime requiere o:
-- Negociar con el cliente que cambie su firewall (puede ser semanas).
-- Mantener el NLB viejo apuntando al Gateway via un mecanismo de proxy externo (over-engineering masivo).
+### Scenario A: Clients with DNS hardcoded to an IP
 
-### Escenario B: Single-replica del Ingress controller con conexiones críticas
+If your app is consumed by B2B integrations that **hardcoded the NLB IP** in their firewall, the NLB change IS an IP change. Zero-downtime requires either:
+- Negotiating with the client to change their firewall (can be weeks).
+- Keeping the old NLB pointing to the Gateway via an external proxy mechanism (massive over-engineering).
 
-Si por alguna razón solo tienes 1 replica de `ingress-nginx-controller`, el drain forzado va a cortar conexiones abruptamente. Antes de la migración, **escala a 3+ replicas y migra gradualmente**.
+### Scenario B: Single-replica Ingress controller with critical connections
 
-### Escenario C: Mutual TLS con client certs específicos del controller
+If for some reason you only have 1 `ingress-nginx-controller` replica, forced drain will cut connections abruptly. Before the migration, **scale to 3+ replicas and migrate gradually**.
 
-Si tu Ingress tenía mTLS con configuración muy específica (`auth-tls-secret`, validación custom), NGF tiene equivalente desde 2.6 pero **los certificados de los clientes pueden necesitar re-rotación si confían en el cert del Ingress**. Esto raramente es problema, pero validar.
+### Scenario C: Mutual TLS with controller-specific client certs
 
-### Escenario D: Aplicaciones que NO toleran ver dos backends durante el cutover
+If your Ingress had mTLS with very specific config (`auth-tls-secret`, custom validation), NGF has an equivalent since 2.6 but **client certificates may need re-rotation if they trust the Ingress cert**. Rarely a problem, but validate.
 
-Muy raro, pero existe. Por ejemplo, si tu app tiene un **rate limit por IP del cliente** y el Gateway expone una IP distinta a la del Ingress viejo, durante el canary algunos clientes podrían verse con "límites duplicados". Solución: rate limit en la app, no en el ingress (que es lo correcto de todas formas).
+### Scenario D: Apps that DON'T tolerate seeing two backends during cutover
 
-## ¿Y si fallo el zero-downtime?
+Very rare, but it exists. For example, if your app has **rate limiting by client IP** and the Gateway exposes a different IP than the old Ingress, during canary some clients could see "duplicated limits". Solution: rate limit in the app, not in the ingress (which is the right thing to do anyway).
 
-Si en la fase de canary detectas errores 5xx **antes** del 50%, revertir DNS es prácticamente instantáneo (limitado por TTL, que es 60s).
+## What if I fail zero-downtime?
 
-Si los errores aparecen **después** del cutover y el `ingress-nginx` ya fue decomisionado, el rollback es:
-1. Reinstalar `ingress-nginx`.
-2. Reaplicar los Ingress (los tienes en Git).
-3. Esperar a que se cree el NLB nuevo (~3-5 min en AWS).
-4. Actualizar DNS al NLB nuevo.
+If during canary phase you detect 5xx errors **before** 50%, reverting DNS is practically instantaneous (limited by TTL, which is 60s).
 
-Esto **no es zero-downtime para el rollback**, son ~10 minutos de degradación. Por eso decomisionar al final es deliberadamente lento.
+If errors appear **after** the cutover and `ingress-nginx` was already decommissioned, rollback is:
+1. Reinstall `ingress-nginx`.
+2. Reapply the Ingresses (you have them in Git).
+3. Wait for the new NLB to be created (~3-5 min in AWS).
+4. Update DNS to the new NLB.
 
-## Resumen ejecutivo
+This is **NOT zero-downtime for the rollback**, it's ~10 minutes of degradation. That's why decommissioning at the end is deliberately slow.
 
-**Lo que prometemos**: con el runbook seguido, una migración con menos de 0.1% de error rate adicional durante la ventana, y zero pérdida de usuarios con clientes resilientes.
+## Executive summary
 
-**Lo que NO prometemos**: literalmente cero requests fallidos. Eso solo es posible con clientes perfectos y DNS perfecto.
+**What we promise**: with the runbook followed, a migration with less than 0.1% additional error rate during the window, and zero user loss with resilient clients.
 
-**El requisito clave del cliente**: retries automáticos con backoff. Si tu cliente hace eso (cualquier librería HTTP moderna), no notarás absolutamente nada.
+**What we DON'T promise**: literally zero failed requests. That's only possible with perfect clients and perfect DNS.
+
+**Key client requirement**: automatic retries with backoff. If your client does that (any modern HTTP library), you'll notice absolutely nothing.
 
 ---
 
-Siguiente: [`06-rollback.md`](./06-rollback.md) — plan detallado de rollback en cada fase.
+Next: [`06-rollback.md`](./06-rollback.md) — detailed rollback plan per phase.

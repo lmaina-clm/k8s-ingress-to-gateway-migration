@@ -1,120 +1,122 @@
-# 04 — Runbook de migración
+**English** | [Español](04-migration-runbook.es.md)
 
-Este es el documento que ejecutas. Cada fase tiene **prerequisito**, **acciones**, **criterio de éxito** y **rollback inmediato**. No saltes fases.
+# 04 — Migration runbook
 
-> **Convención**: los comandos asumen que estás en la raíz del repo y tu `kubectl` apunta al clúster correcto. Verifica con `kubectl config current-context` **antes de cada comando**.
+This is the document you execute. Each phase has a **prerequisite**, **actions**, **success criteria**, and **immediate rollback**. Don't skip phases.
 
-## Resumen visual del runbook
+> **Convention**: commands assume you're at the repo root and your `kubectl` points to the correct cluster. Verify with `kubectl config current-context` **before each command**.
+
+## Visual runbook summary
 
 ```
-FASE 1: Baseline               ← Verificas que tu Ingress actual funciona
-FASE 2: Instalar Gateway API   ← CRDs + NGINX Gateway Fabric (sin afectar tráfico)
-FASE 3: Configurar Gateway     ← Gateway + HTTPRoutes (sin DNS todavía)
-FASE 4: Validar paralelo       ← Curl con Host header al nuevo NLB
-FASE 5: Canary DNS             ← Route 53 weighted, 10% al Gateway
-FASE 6: Promover               ← Gradualmente 100% al Gateway
-FASE 7: Drenar Ingress         ← TTL cumplido, sin tráfico residual
-FASE 8: Decomisionar           ← Borrar ingress-nginx
+PHASE 1: Baseline               ← Verify your current Ingress works
+PHASE 2: Install Gateway API    ← CRDs + NGINX Gateway Fabric (no traffic impact)
+PHASE 3: Configure Gateway      ← Gateway + HTTPRoutes (no DNS yet)
+PHASE 4: Validate in parallel   ← Curl with Host header against the new NLB
+PHASE 5: Canary DNS             ← Route 53 weighted, 10% to Gateway
+PHASE 6: Promote                ← Gradually move to 100% Gateway
+PHASE 7: Drain Ingress          ← TTL elapsed, no residual traffic
+PHASE 8: Decommission           ← Remove ingress-nginx
 ```
 
-Duración total estimada: **3-5 días** (la mayoría es ventana de observación, no trabajo activo).
+Total estimated duration: **3-5 days** (most of it is observation window, not active work).
 
 ---
 
-## FASE 1: Baseline
+## PHASE 1: Baseline
 
-**Objetivo**: documentar el estado actual y verificar que el Ingress funciona como esperamos.
+**Goal**: document the current state and verify the Ingress works as expected.
 
-### Prerequisito
+### Prerequisite
 
-- Todo el checklist de `01-prerequisites.md` completado.
-- Tienes acceso a métricas y logs del `ingress-nginx-controller`.
+- All checklist from `01-prerequisites.md` completed.
+- You have access to `ingress-nginx-controller` metrics and logs.
 
-### Acciones
+### Actions
 
-1. **Snapshot de Ingress actuales**:
+1. **Snapshot current Ingresses**:
    ```bash
    kubectl get ingress -A -o yaml > /tmp/ingress-snapshot-$(date +%Y%m%d).yaml
    ```
 
-2. **Snapshot de anotaciones especiales**:
+2. **Snapshot special annotations**:
    ```bash
    kubectl get ingress -A -o json | jq '.items[] | {name: .metadata.name, ns: .metadata.namespace, annotations: .metadata.annotations}' > /tmp/annotations-$(date +%Y%m%d).json
    ```
-   Revisa este archivo. Cada anotación debe tener su equivalente en Gateway API (ver `03-ingress-vs-gateway.md`).
+   Review this file. Each annotation must have its Gateway API equivalent (see `03-ingress-vs-gateway.md`).
 
-3. **Métricas baseline** (registra estos números, vas a compararlos):
-   - RPS promedio (5 min y peak)
-   - p50, p95, p99 latencia
+3. **Baseline metrics** (record these numbers, you'll compare against them):
+   - Average RPS (5 min and peak)
+   - p50, p95, p99 latency
    - Error rate (4xx, 5xx)
-   - Top 10 endpoints por tráfico
+   - Top 10 endpoints by traffic
 
 4. **Smoke test**:
    ```bash
    ./scripts/validate-traffic.sh ingress
    ```
-   Esto hace requests a los paths principales y reporta latencia/status. Guarda el output.
+   This makes requests to the main paths and reports latency/status. Save the output.
 
-### Criterio de éxito
+### Success criteria
 
-- [ ] Snapshot de Ingress capturado.
-- [ ] Anotaciones documentadas con su plan de migración por cada una.
-- [ ] Métricas baseline registradas.
-- [ ] Smoke test pasa al 100%.
+- [ ] Ingress snapshot captured.
+- [ ] Annotations documented with a migration plan for each.
+- [ ] Baseline metrics recorded.
+- [ ] Smoke test passes at 100%.
 
 ### Rollback
 
-N/A — solo estás leyendo el estado.
+N/A — you're just reading state.
 
 ---
 
-## FASE 2: Instalar Gateway API y NGINX Gateway Fabric
+## PHASE 2: Install Gateway API and NGINX Gateway Fabric
 
-**Objetivo**: instalar el nuevo controller **sin tocar nada del tráfico actual**.
+**Goal**: install the new controller **without touching current traffic**.
 
-### Prerequisito
+### Prerequisite
 
-- Fase 1 completa.
-- AWS Load Balancer Controller funcionando.
+- Phase 1 complete.
+- AWS Load Balancer Controller working.
 
-### Acciones
+### Actions
 
-1. **Instalar CRDs de Gateway API** (v1.5.1):
+1. **Install Gateway API CRDs** (v1.5.1):
    ```bash
    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
    ```
 
-2. **Verificar CRDs**:
+2. **Verify CRDs**:
    ```bash
    kubectl get crd | grep gateway.networking.k8s.io
    ```
-   Debes ver: `gateways`, `gatewayclasses`, `httproutes`, `grpcroutes`, `referencegrants`.
+   You should see: `gateways`, `gatewayclasses`, `httproutes`, `grpcroutes`, `referencegrants`.
 
-3. **Instalar NGINX Gateway Fabric** vía Helm:
+3. **Install NGINX Gateway Fabric** via Helm:
    ```bash
    ./scripts/install-nginx-gateway-fabric.sh
    ```
-   El script:
-   - Crea namespace `nginx-gateway`.
-   - Instala NGF 2.6.x con valores opinionados para EKS.
-   - Espera a que el control-plane esté `Ready`.
+   The script:
+   - Creates the `nginx-gateway` namespace.
+   - Installs NGF 2.6.x with EKS-opinionated values.
+   - Waits for the control-plane to be `Ready`.
 
-4. **Verificar control-plane**:
+4. **Verify control-plane**:
    ```bash
    kubectl get pods -n nginx-gateway
    kubectl get gatewayclass nginx-gateway
    ```
-   `gatewayclass nginx-gateway` debe estar `ACCEPTED=True`.
+   `gatewayclass nginx-gateway` must be `ACCEPTED=True`.
 
-5. **NO crear `Gateway` todavía.** Sin `Gateway`, NGF no crea data-plane ni NLB. Cero impacto.
+5. **DO NOT create the `Gateway` yet.** Without a `Gateway`, NGF doesn't create a data-plane or NLB. Zero impact.
 
-### Criterio de éxito
+### Success criteria
 
-- [ ] CRDs presentes (5 mínimo).
+- [ ] CRDs present (5 minimum).
 - [ ] NGF control-plane `Running`.
 - [ ] `GatewayClass nginx-gateway` `ACCEPTED`.
-- [ ] `kubectl get svc -A` NO muestra ningún NLB nuevo (todavía no se creó).
-- [ ] Tráfico vía `ingress-nginx` sigue al 100%. `./scripts/validate-traffic.sh ingress` pasa.
+- [ ] `kubectl get svc -A` does NOT show any new NLB (none was created yet).
+- [ ] Traffic via `ingress-nginx` still at 100%. `./scripts/validate-traffic.sh ingress` passes.
 
 ### Rollback
 
@@ -126,332 +128,332 @@ kubectl delete namespace nginx-gateway
 
 ---
 
-## FASE 3: Configurar Gateway y HTTPRoutes
+## PHASE 3: Configure Gateway and HTTPRoutes
 
-**Objetivo**: crear los recursos Gateway API. Esto provisiona un **nuevo NLB en paralelo**, pero sin DNS público apuntando a él.
+**Goal**: create the Gateway API resources. This provisions a **new NLB in parallel**, but with no public DNS pointing to it.
 
-### Prerequisito
+### Prerequisite
 
-- Fase 2 completa.
-- Tienes el `Secret` con el certificado TLS (puede ser el mismo que usa el Ingress actual).
+- Phase 2 complete.
+- You have the `Secret` with the TLS certificate (can be the same the current Ingress uses).
 
-### Acciones
+### Actions
 
-1. **Crear namespace y ReferenceGrant**:
+1. **Create namespaces and ReferenceGrant**:
    ```bash
    kubectl apply -f manifests/00-base/
    ```
 
-2. **Copiar el secret TLS al namespace `gateway-system`** (si no usas cert-manager):
+2. **Copy the TLS secret to namespace `gateway-system`** (if not using cert-manager):
    ```bash
    kubectl get secret shop-tls -n microservices -o yaml \
      | sed 's/namespace: microservices/namespace: gateway-system/' \
      | kubectl apply -f -
    ```
-   Si usas **cert-manager**, crea el `Certificate` directamente en `gateway-system`:
+   If using **cert-manager**, create the `Certificate` directly in `gateway-system`:
    ```bash
-   kubectl apply -f manifests/03-gateway-api/certificate.yaml
+   kubectl apply -f manifests/03-gateway-api/examples/certificate.yaml.example
    ```
 
-3. **Aplicar Gateway y HTTPRoutes**:
+3. **Apply Gateway and HTTPRoutes**:
    ```bash
    kubectl apply -f manifests/03-gateway-api/
    ```
 
-4. **Esperar a que el data-plane se provisione**:
+4. **Wait for the data-plane to be provisioned**:
    ```bash
    kubectl wait --for=condition=Programmed gateway/boutique-gateway \
      -n gateway-system --timeout=300s
    ```
 
-5. **Obtener el hostname del NLB**:
+5. **Get the NLB hostname**:
    ```bash
    export GW_NLB=$(kubectl get svc -n gateway-system \
      -l gateway.networking.k8s.io/gateway-name=boutique-gateway \
      -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
-   echo "Nuevo NLB: $GW_NLB"
+   echo "New NLB: $GW_NLB"
    ```
 
-### Criterio de éxito
+### Success criteria
 
-- [ ] `kubectl get gateway -n gateway-system boutique-gateway` muestra `PROGRAMMED=True`.
-- [ ] `kubectl get httproute -n microservices` — todas en `ACCEPTED=True` y `ResolvedRefs=True`.
-- [ ] Existe un NLB nuevo (`$GW_NLB` no está vacío).
-- [ ] El NLB viejo (ingress-nginx) sigue intacto y sirviendo tráfico.
+- [ ] `kubectl get gateway -n gateway-system boutique-gateway` shows `PROGRAMMED=True`.
+- [ ] `kubectl get httproute -n microservices` — all in `ACCEPTED=True` and `ResolvedRefs=True`.
+- [ ] A new NLB exists (`$GW_NLB` not empty).
+- [ ] The old NLB (ingress-nginx) is intact and serving traffic.
 
 ### Rollback
 
 ```bash
 kubectl delete -f manifests/03-gateway-api/
-# El NLB nuevo se destruye automáticamente.
+# The new NLB is destroyed automatically.
 ```
 
 ---
 
-## FASE 4: Validar en paralelo (sin DNS)
+## PHASE 4: Validate in parallel (no DNS)
 
-**Objetivo**: validar que el nuevo Gateway sirve el tráfico correctamente, sin todavía exponerlo públicamente.
+**Goal**: validate that the new Gateway serves traffic correctly, without exposing it publicly yet.
 
-### Acciones
+### Actions
 
-1. **Smoke test contra el NLB nuevo con `Host:` header**:
+1. **Smoke test against the new NLB with `Host:` header**:
    ```bash
    ./scripts/validate-traffic.sh gateway $GW_NLB
    ```
-   El script hace:
+   The script does:
    ```bash
    curl -k --resolve shop.example.com:443:$(dig +short $GW_NLB | head -1) \
         https://shop.example.com/
    ```
-   Esto te permite hablar con el nuevo NLB como si fuera el real, sin tocar DNS.
+   This lets you talk to the new NLB as if it were real, without touching DNS.
 
-2. **Comparar respuestas entre los dos NLBs**:
+2. **Compare responses between the two NLBs**:
    ```bash
    ./scripts/compare-responses.sh
    ```
-   Hace el mismo request a ambos NLBs y compara:
+   Makes the same request to both NLBs and compares:
    - Status code
-   - Headers críticos (`Content-Type`, `Cache-Control`)
-   - Body (con tolerancia a timestamps/IDs)
+   - Critical headers (`Content-Type`, `Cache-Control`)
+   - Body (with tolerance for timestamps/IDs)
 
-   **Resultado esperado**: 100% de matches. Si hay diferencias, revisa anotaciones que no se migraron correctamente.
+   **Expected result**: 100% match. If there are differences, review annotations that weren't migrated correctly.
 
-3. **Test de carga ligero al nuevo NLB** (sin promocionar todavía):
+3. **Light load test against the new NLB** (without promoting yet):
    ```bash
-   # 100 RPS por 60s, suficiente para validar que no hay problemas obvios
+   # 100 RPS for 60s, enough to validate no obvious problems
    hey -z 60s -c 10 -q 10 \
        -host shop.example.com \
        https://$GW_NLB/
    ```
-   Métricas esperadas:
-   - p95 latencia ≤ baseline + 20%
-   - 0 errores 5xx
+   Expected metrics:
+   - p95 latency ≤ baseline + 20%
+   - 0 5xx errors
 
-4. **Validar observabilidad del nuevo path**:
-   - Métricas de NGF llegando a Prometheus.
-   - Logs accesibles.
-   - Las alertas que tienes sobre el viejo Ingress, ya replicadas para NGF (con los nombres de métricas nuevos).
+4. **Validate observability of the new path**:
+   - NGF metrics arriving in Prometheus.
+   - Logs accessible.
+   - Alerts you have on the old Ingress, already replicated for NGF (with the new metric names).
 
-### Criterio de éxito
+### Success criteria
 
-- [ ] Smoke test pasa al 100% contra el nuevo NLB.
-- [ ] Diff entre los dos NLBs: solo diferencias esperadas (request IDs, timestamps).
-- [ ] Test de carga ligero sin errores.
-- [ ] Métricas y logs de NGF visibles en tus dashboards.
-- [ ] Alertas para el nuevo dataplane configuradas.
+- [ ] Smoke test passes 100% against the new NLB.
+- [ ] Diff between the two NLBs: only expected differences (request IDs, timestamps).
+- [ ] Light load test without errors.
+- [ ] NGF metrics and logs visible in your dashboards.
+- [ ] Alerts for the new dataplane configured.
 
 ### Rollback
 
-Idem fase 3. Esto es lo último que puedes deshacer sin riesgo.
+Same as phase 3. This is the last point you can undo without risk.
 
 ---
 
-## FASE 5: Canary DNS — 10%
+## PHASE 5: Canary DNS — 10%
 
-**Objetivo**: empezar a enviar tráfico real al nuevo Gateway, pero solo una fracción pequeña.
+**Goal**: start sending real traffic to the new Gateway, but only a small fraction.
 
-> ⚠️ **A partir de aquí, los cambios son visibles a usuarios.** Ten observabilidad activa y rollback al teclado.
+> ⚠️ **From here on, changes are user-visible.** Have observability active and rollback at hand.
 
-### Prerequisito
+### Prerequisite
 
-- Fase 4 completa con métricas estables.
-- DNS basado en Route 53 (o equivalente con weighted routing).
-- Ventana de mantenimiento anunciada (incluso si esperamos no necesitarla).
-- Mínimo dos personas: una opera, otra observa.
+- Phase 4 complete with stable metrics.
+- DNS based on Route 53 (or equivalent with weighted routing).
+- Maintenance window announced (even if we hope not to need it).
+- Minimum two people: one operates, the other observes.
 
-### Acciones
+### Actions
 
-1. **Cambiar el record DNS de `A` simple a weighted alias** (si no lo era ya):
+1. **Change DNS record from simple `A` to weighted alias** (if it wasn't already):
 
-   **Antes** (estado inicial):
+   **Before** (initial state):
    ```
    shop.example.com  →  ALIAS  →  <NLB-ingress-nginx>
    ```
 
-   **Después** (weighted):
+   **After** (weighted):
    ```
    shop.example.com  →  weighted, weight=90, id="ingress"  →  <NLB-ingress-nginx>
    shop.example.com  →  weighted, weight=10, id="gateway"  →  <NLB-gateway-fabric>
    ```
 
-   Comando AWS CLI (asume zona hospedada `Z123ABC`):
+   AWS CLI command (assumes hosted zone `Z123ABC`):
    ```bash
    aws route53 change-resource-record-sets \
      --hosted-zone-id Z123ABC \
      --change-batch file://manifests/04-migration/dns-canary-10pct.json
    ```
-   (ver archivo de ejemplo en `manifests/04-migration/`)
+   (see example file in `manifests/04-migration/`)
 
-2. **Bajar TTL antes del cambio** (idealmente 24h antes):
+2. **Lower TTL before the change** (ideally 24h before):
    ```
    TTL: 60s
    ```
-   Si tu TTL era 3600s, los DNS resolvers tendrán caché. Bajar el TTL **24 horas antes** garantiza que los cambios subsecuentes propaguen rápido.
+   If your TTL was 3600s, DNS resolvers will have a cache. Lowering the TTL **24 hours before** ensures subsequent changes propagate fast.
 
-3. **Observar durante 30 min mínimo**:
-   - Error rate en ambos NLBs.
-   - Latencia p95 en ambos NLBs.
-   - Logs de errores en NGF data-plane.
-   - Logs de errores en `ingress-nginx`.
+3. **Observe for minimum 30 min**:
+   - Error rate on both NLBs.
+   - p95 latency on both NLBs.
+   - Error logs on NGF data-plane.
+   - Error logs on `ingress-nginx`.
 
-   Si todo está estable: continúa a fase 6.
+   If everything is stable: continue to phase 6.
 
-### Criterio de éxito
+### Success criteria
 
-- [ ] Tráfico observable en NGF (~10% del total).
-- [ ] Error rate en el nuevo NLB ≤ error rate baseline.
-- [ ] Latencia p95 ≤ baseline + 20%.
-- [ ] No hay errores en logs de NGF que sugieran problemas de routing.
+- [ ] Traffic observable on NGF (~10% of total).
+- [ ] Error rate on the new NLB ≤ baseline error rate.
+- [ ] p95 latency ≤ baseline + 20%.
+- [ ] No errors in NGF logs suggesting routing issues.
 
 ### Rollback
 
-**Rápido (recomendado si hay duda)**:
+**Fast (recommended if in doubt)**:
 ```bash
 aws route53 change-resource-record-sets \
   --hosted-zone-id Z123ABC \
   --change-batch file://manifests/04-migration/dns-rollback-100pct-ingress.json
 ```
-DNS revierte a 100% Ingress. Esperar TTL (60s) y los clientes vuelven al estado anterior.
+DNS reverts to 100% Ingress. Wait for TTL (60s) and clients return to the previous state.
 
 ---
 
-## FASE 6: Promover gradualmente
+## PHASE 6: Promote gradually
 
-**Objetivo**: subir el peso del Gateway en pasos controlados, verificando estabilidad en cada uno.
+**Goal**: increase the Gateway weight in controlled steps, verifying stability at each one.
 
-### Acciones
+### Actions
 
-Repite el patrón fase 5 con estos pesos, esperando **mínimo 30 minutos** entre cambios (idealmente 2-4 horas en producción):
+Repeat the phase 5 pattern with these weights, waiting **minimum 30 minutes** between changes (ideally 2-4 hours in production):
 
 ```
 10% → 25% → 50% → 75% → 100%
 ```
 
-En cada paso:
+At each step:
 
-1. Aplica el cambio DNS (un archivo `.json` por paso en `manifests/04-migration/`).
-2. Observa 30 min mínimo.
-3. Valida criterios de éxito.
-4. Continúa o haz rollback.
+1. Apply the DNS change (a `.json` file per step in `manifests/04-migration/`).
+2. Observe minimum 30 min.
+3. Validate success criteria.
+4. Continue or rollback.
 
-### Criterio de éxito por paso
+### Success criteria per step
 
-- Mismo que fase 5, con tolerancias estables.
-- **Atención especial al 50%**: es el punto donde más obvio será cualquier diferencia entre los dos controllers (sticky sessions rotas, headers diferentes, etc.).
+- Same as phase 5, with stable tolerances.
+- **Special attention at 50%**: it's the point where any difference between the two controllers will be most visible (broken sticky sessions, different headers, etc.).
 
 ### Rollback
 
-A cualquier paso, aplicar el DNS del paso anterior. TTL bajo → propagación rápida.
+At any step, apply the DNS of the previous step. Low TTL → fast propagation.
 
 ---
 
-## FASE 7: Drenar el Ingress
+## PHASE 7: Drain the Ingress
 
-**Objetivo**: con 100% del tráfico nuevo en Gateway, esperar a que el Ingress drene las conexiones residuales.
+**Goal**: with 100% of new traffic on Gateway, wait for the Ingress to drain residual connections.
 
-### Acciones
+### Actions
 
-1. **Con DNS al 100% en Gateway**, espera **mínimo 5 × TTL** del DNS.
-   - Con TTL=60s → 5 min mínimo, recomendado 1 hora para conexiones long-lived.
+1. **With DNS at 100% on Gateway**, wait **minimum 5 × TTL** of the DNS.
+   - With TTL=60s → 5 min minimum, recommended 1 hour for long-lived connections.
 
-2. **Verificar tráfico residual** en `ingress-nginx`:
+2. **Verify residual traffic** on `ingress-nginx`:
    ```bash
    kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller \
      --tail=100 -f
    ```
-   Si todavía ves requests, **no continúes**. Algún cliente tiene caché DNS larga o conexión persistente sin reconexión.
+   If you still see requests, **don't continue**. Some client has long DNS cache or a persistent connection without reconnection.
 
-3. **Tráfico residual común y qué hacer**:
-   - Bots con caché DNS hardcoded → ignorables, eventualmente se reconectan.
-   - Clientes con TTL=0 honoreado mal → esperar más.
-   - **Conexiones long-lived no reconectadas** → tu problema. Forzar reinicio del cliente o esperar.
+3. **Common residual traffic and what to do**:
+   - Bots with hardcoded DNS cache → ignorable, they eventually reconnect.
+   - Clients honoring TTL=0 badly → wait more.
+   - **Long-lived non-reconnecting connections** → your problem. Force client restart or wait.
 
-### Criterio de éxito
+### Success criteria
 
-- [ ] DNS al 100% en Gateway por mínimo 1 hora.
-- [ ] Tráfico al NLB de `ingress-nginx` < 0.1% del total (o cero).
-- [ ] No hay alertas activas relacionadas con el cambio.
+- [ ] DNS at 100% on Gateway for minimum 1 hour.
+- [ ] Traffic to `ingress-nginx` NLB < 0.1% of total (or zero).
+- [ ] No active alerts related to the change.
 
 ### Rollback
 
-Aún posible: revertir DNS. Pero con clientes nuevos ya conectados al Gateway, el rollback parcial puede causar inconsistencias de estado. **Decisión consciente con stakeholders.**
+Still possible: revert DNS. But with new clients already connected to the Gateway, partial rollback can cause state inconsistencies. **Conscious decision with stakeholders.**
 
 ---
 
-## FASE 8: Decomisionar `ingress-nginx`
+## PHASE 8: Decommission `ingress-nginx`
 
-**Objetivo**: limpiar. Una vez decomisionado, el rollback ya no es trivial.
+**Goal**: clean up. Once decommissioned, rollback is no longer trivial.
 
-### Prerequisito
+### Prerequisite
 
-- Fase 7 completa, mínimo 24 horas estable.
-- Aprobación explícita del responsable del servicio.
+- Phase 7 complete, minimum 24 hours stable.
+- Explicit approval from the service owner.
 
-### Acciones
+### Actions
 
-1. **Borrar los Ingress** (esto NO destruye el controller todavía):
+1. **Delete the Ingresses** (this does NOT destroy the controller yet):
    ```bash
    kubectl delete -f manifests/02-ingress-nginx/ingress.yaml
    ```
 
-2. **Esperar 30 minutos**. Si algo se rompe, restaurar:
+2. **Wait 30 minutes**. If something breaks, restore:
    ```bash
    kubectl apply -f manifests/02-ingress-nginx/ingress.yaml
    ```
-   Y revertir DNS. Es la última ventana razonable de rollback.
+   And revert DNS. This is the last reasonable rollback window.
 
-3. **Si todo OK, desinstalar `ingress-nginx`**:
+3. **If everything OK, uninstall `ingress-nginx`**:
    ```bash
    helm uninstall ingress-nginx -n ingress-nginx
    kubectl delete namespace ingress-nginx
    ```
-   Esto destruye el NLB viejo automáticamente.
+   This destroys the old NLB automatically.
 
-4. **Limpiar el DNS** — eliminar el weighted record que apuntaba al NLB viejo, dejar solo el del Gateway (o convertir a record simple sin weighted):
+4. **Clean up DNS** — remove the weighted record pointing to the old NLB, leave only the Gateway one (or convert to a simple record without weighting):
    ```bash
    aws route53 change-resource-record-sets \
      --hosted-zone-id Z123ABC \
      --change-batch file://manifests/04-migration/dns-final-state.json
    ```
 
-5. **Subir TTL de vuelta** a tu valor normal (300s o más).
+5. **Raise TTL back** to your normal value (300s or more).
 
-### Criterio de éxito
+### Success criteria
 
-- [ ] `ingress-nginx` namespace eliminado.
-- [ ] NLB viejo destruido (verificar en consola AWS).
-- [ ] DNS limpio, sin records al NLB viejo.
-- [ ] Servicio funcionando al 100% solo con Gateway API.
-- [ ] Post-mortem o retrospectiva agendada.
-
----
-
-## Post-migración
-
-Tareas que **no son urgentes** pero hay que hacer:
-
-- [ ] Actualizar runbooks operativos que mencionen `ingress-nginx`.
-- [ ] Actualizar dashboards si quedan widgets antiguos.
-- [ ] Revisar tu chart de Helm / Kustomize / GitOps para que use Gateway API por defecto en deploys futuros.
-- [ ] Capacitar al equipo (este repo + sesión interna de Q&A).
-- [ ] Documentar cualquier desvío del runbook estándar para futuras migraciones.
+- [ ] `ingress-nginx` namespace removed.
+- [ ] Old NLB destroyed (verify in AWS console).
+- [ ] DNS clean, no records to the old NLB.
+- [ ] Service working at 100% only with Gateway API.
+- [ ] Post-mortem or retrospective scheduled.
 
 ---
 
-## Tiempos típicos
+## Post-migration
 
-| Fase | Tiempo activo | Tiempo total (con observación) |
-|------|---------------|-------------------------------|
+Tasks that **aren't urgent** but need to be done:
+
+- [ ] Update operational runbooks that mention `ingress-nginx`.
+- [ ] Update dashboards if old widgets remain.
+- [ ] Review your Helm chart / Kustomize / GitOps to use Gateway API by default in future deploys.
+- [ ] Train the team (this repo + internal Q&A session).
+- [ ] Document any deviations from the standard runbook for future migrations.
+
+---
+
+## Typical timings
+
+| Phase | Active time | Total time (with observation) |
+|-------|-------------|------------------------------|
 | 1. Baseline | 1h | 1h |
-| 2. Instalar NGF | 30 min | 1h |
-| 3. Configurar Gateway | 30 min | 1h |
-| 4. Validar paralelo | 1h | 4h (recomendado overnight si producción crítica) |
+| 2. Install NGF | 30 min | 1h |
+| 3. Configure Gateway | 30 min | 1h |
+| 4. Validate in parallel | 1h | 4h (recommended overnight if production-critical) |
 | 5. Canary 10% | 15 min | 30 min - 2h |
-| 6. Promoción gradual | 1h | 1 día (con esperas entre pasos) |
-| 7. Drenar Ingress | 15 min | 2-4h |
-| 8. Decomisionar | 30 min | 24h (espera de seguridad antes de borrar) |
-| **TOTAL** | **~5h** | **3-5 días** |
+| 6. Gradual promotion | 1h | 1 day (with waits between steps) |
+| 7. Drain Ingress | 15 min | 2-4h |
+| 8. Decommission | 30 min | 24h (safety wait before deleting) |
+| **TOTAL** | **~5h** | **3-5 days** |
 
 ---
 
-Siguiente: [`05-zero-downtime.md`](./05-zero-downtime.md) — análisis profundo de los riesgos de zero-downtime.
+Next: [`05-zero-downtime.md`](./05-zero-downtime.md) — deep analysis of zero-downtime risks.
