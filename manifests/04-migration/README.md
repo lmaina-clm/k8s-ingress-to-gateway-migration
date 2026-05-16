@@ -1,19 +1,21 @@
+**English** | [Español](README.es.md)
+
 # manifests/04-migration
 
-Archivos JSON con los change batches para Route 53. Cada uno representa un peso distinto en el weighted routing entre los dos NLBs.
+JSON files with Route 53 change batches. Each one represents a different weight in the weighted routing between the two NLBs.
 
-## Cómo usar
+## How to use
 
-Antes de aplicar **cualquiera**:
+Before applying **any**:
 
-1. Edita los archivos JSON y reemplaza los placeholders:
-   - `<HOSTED_ZONE_ID>` — no se usa en el JSON (se pasa por CLI), pero indica el contexto.
-   - `<INGRESS_NLB_HOSTNAME>` — hostname del NLB de ingress-nginx.
-   - `<INGRESS_NLB_ZONE_ID>` — Zone ID del NLB (ver tabla abajo).
-   - `<GATEWAY_NLB_HOSTNAME>` — hostname del NLB de NGF.
-   - `<GATEWAY_NLB_ZONE_ID>` — Zone ID del NLB.
+1. Edit the JSON files and replace the placeholders:
+   - `<HOSTED_ZONE_ID>` — not used in the JSON (passed via CLI), but indicates context.
+   - `<INGRESS_NLB_HOSTNAME>` — hostname of the ingress-nginx NLB.
+   - `<INGRESS_NLB_ZONE_ID>` — Zone ID of the NLB (see table below).
+   - `<GATEWAY_NLB_HOSTNAME>` — hostname of the NGF NLB.
+   - `<GATEWAY_NLB_ZONE_ID>` — Zone ID of the NLB.
 
-2. Aplica con:
+2. Apply with:
 
    ```bash
    aws route53 change-resource-record-sets \
@@ -21,9 +23,9 @@ Antes de aplicar **cualquiera**:
      --change-batch file://manifests/04-migration/dns-canary-10pct.json
    ```
 
-## Zone IDs de NLB por región
+## NLB Zone IDs per region
 
-| Región | Zone ID |
+| Region | Zone ID |
 |--------|---------|
 | us-east-1 | Z26RNL4JYFTOTI |
 | us-east-2 | ZLMOA37VPKANP |
@@ -34,9 +36,9 @@ Antes de aplicar **cualquiera**:
 | ap-southeast-1 | ZKVM4W9LS7TM |
 | ap-northeast-1 | Z31USIVHYNEOWT |
 
-(Lista completa en docs de AWS — para 2026 vigentes.)
+(Full list in AWS docs — current for 2026.)
 
-Para descubrir un Zone ID dado un hostname:
+To discover a Zone ID for a given hostname:
 
 ```bash
 aws elbv2 describe-load-balancers \
@@ -44,21 +46,21 @@ aws elbv2 describe-load-balancers \
   --output text
 ```
 
-## Archivos por fase
+## Files per phase
 
-| Archivo | Peso Ingress | Peso Gateway | Cuando usar |
-|---------|--------------|--------------|-------------|
-| `dns-canary-10pct.json` | 90 | 10 | Fase 5 inicial |
-| `dns-canary-25pct.json` | 75 | 25 | Promoción |
-| `dns-canary-50pct.json` | 50 | 50 | Punto de inflexión |
-| `dns-canary-75pct.json` | 25 | 75 | Casi al final |
-| `dns-canary-100pct.json` | 0 | 100 | Cutover final |
-| `dns-rollback-100pct-ingress.json` | 100 | 0 | Rollback total |
-| `dns-final-state.json` | (removed) | 100 (simple) | Post-decomisión |
+| File | Ingress weight | Gateway weight | When to use |
+|------|----------------|----------------|-------------|
+| `dns-canary-10pct.json` | 90 | 10 | Initial phase 5 |
+| `dns-canary-25pct.json` | 75 | 25 | Promotion |
+| `dns-canary-50pct.json` | 50 | 50 | Inflection point |
+| `dns-canary-75pct.json` | 25 | 75 | Near the end |
+| `dns-canary-100pct.json` | 0 | 100 | Final cutover |
+| `dns-rollback-100pct-ingress.json` | 100 | 0 | Full rollback |
+| `dns-final-state.json` | (removed) | 100 (simple) | Post-decommission |
 
-## TTL bajo (preparación)
+## Low TTL (preparation)
 
-Antes de empezar el canary, baja el TTL para que los cambios propaguen rápido:
+Before starting the canary, lower the TTL so changes propagate fast:
 
 ```bash
 aws route53 change-resource-record-sets \
@@ -66,4 +68,4 @@ aws route53 change-resource-record-sets \
   --change-batch file://manifests/04-migration/dns-prepare-lower-ttl.json
 ```
 
-Y espera 24h (o el TTL anterior) antes del primer canary.
+And wait 24h (or the previous TTL) before the first canary.

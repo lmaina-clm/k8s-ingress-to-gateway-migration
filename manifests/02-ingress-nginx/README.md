@@ -1,53 +1,55 @@
-# manifests/02-ingress-nginx — Estado inicial
+**English** | [Español](README.es.md)
 
-Estado de la arquitectura **antes** de la migración:
+# manifests/02-ingress-nginx — Initial state
 
-- `ingress-nginx` instalado vía Helm (ver `scripts/install-ingress-nginx.sh`).
-- Un `Ingress` apuntando al servicio `frontend` de Online Boutique.
-- TLS terminado en el Ingress (cert auto-firmado por defecto; sustituye con tu cert real).
+State of the architecture **before** the migration:
 
-## Aplicar
+- `ingress-nginx` installed via Helm (see `scripts/install-ingress-nginx.sh`).
+- An `Ingress` pointing to the `frontend` service of Online Boutique.
+- TLS terminated at the Ingress (self-signed cert by default; replace with your real cert).
 
-Primero el controller:
+## Apply
+
+First the controller:
 
 ```bash
 ./scripts/install-ingress-nginx.sh
 ```
 
-Luego los recursos Ingress:
+Then the Ingress resources:
 
 ```bash
 kubectl apply -f manifests/02-ingress-nginx/
 ```
 
-## Verificar
+## Verify
 
 ```bash
-# El controller debe estar Running
+# The controller must be Running
 kubectl -n ingress-nginx get pods
 
-# El NLB debe tener un hostname externo
+# The NLB must have an external hostname
 kubectl -n ingress-nginx get svc ingress-nginx-controller
 
-# El Ingress debe tener una ADDRESS asignada
+# The Ingress must have an ADDRESS assigned
 kubectl -n microservices get ingress boutique
 ```
 
-## Probar
+## Test
 
-Con el hostname del NLB:
+With the NLB hostname:
 
 ```bash
 INGRESS_LB=$(kubectl -n ingress-nginx get svc ingress-nginx-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 
-# Sin DNS configurado todavía:
+# With no DNS configured yet:
 curl -k -H "Host: shop.example.com" https://$INGRESS_LB/
 ```
 
-Debe devolver el HTML del frontend.
+Must return the frontend HTML.
 
-## Archivos
+## Files
 
-- **`ingress.yaml`**: el `Ingress` principal con anotaciones típicas (`force-ssl-redirect`, `proxy-body-size`).
-- **`examples/tls-secret.yaml.example`**: plantilla del Secret TLS para `shop.example.com`. NO se aplica automáticamente con `kubectl apply -f manifests/02-ingress-nginx/` (vive en `examples/` para evitar sobrescribir un Secret real con placeholders). Para producción, generar el Secret vía cert-manager o crear uno con `kubectl create secret tls` antes de aplicar el Ingress.
+- **`ingress.yaml`**: the main `Ingress` with typical annotations (`force-ssl-redirect`, `proxy-body-size`).
+- **`examples/tls-secret.yaml.example`**: TLS Secret template for `shop.example.com`. It is NOT applied automatically with `kubectl apply -f manifests/02-ingress-nginx/` (it lives in `examples/` to avoid overwriting a real Secret with placeholders). For production, generate the Secret via cert-manager or create one with `kubectl create secret tls` before applying the Ingress.

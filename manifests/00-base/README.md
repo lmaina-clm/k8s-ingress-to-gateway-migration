@@ -1,20 +1,27 @@
+**English** | [Español](README.es.md)
+
 # manifests/00-base
 
-Recursos compartidos por todas las fases:
+Resources shared across all phases:
 
-- **`namespaces.yaml`**: crea `microservices` y `gateway-system`, con los labels que necesitan los `allowedRoutes` del Gateway. Incluye el `ReferenceGrant` que permite que los `HTTPRoute` de `microservices` referencien al `Gateway` en `gateway-system`.
+- **`namespaces.yaml`**: creates the `microservices` and `gateway-system` namespaces, with the labels required by the Gateway's `allowedRoutes`. Does NOT depend on Gateway API CRDs, so it can be applied at any time.
+- **`reference-grant.yaml`**: the `ReferenceGrant` that allows `HTTPRoute`s in `microservices` to reference the `Gateway` in `gateway-system`. **Requires Gateway API CRDs installed** — apply AFTER installing NGF.
 
-## Aplicar
+## Apply
 
 ```bash
-kubectl apply -f manifests/00-base/
+# Before installing Gateway API (anytime)
+kubectl apply -f manifests/00-base/namespaces.yaml
+
+# After installing Gateway API CRDs + NGF
+kubectl apply -f manifests/00-base/reference-grant.yaml
 ```
 
-## Verificar
+## Verify
 
 ```bash
 kubectl get namespace microservices gateway-system
 kubectl get referencegrant -n gateway-system
 ```
 
-Ambos namespaces deben existir, el `ReferenceGrant` también. Esto se aplica **antes** de cualquier `Gateway` o `HTTPRoute`.
+Both namespaces must exist; the `ReferenceGrant` too, after installing Gateway API.

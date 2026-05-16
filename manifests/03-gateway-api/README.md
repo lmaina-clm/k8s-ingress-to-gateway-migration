@@ -1,77 +1,79 @@
-# manifests/03-gateway-api — Estado destino
+**English** | [Español](README.es.md)
 
-Estado de la arquitectura **después** de la migración:
+# manifests/03-gateway-api — Target state
 
-- NGINX Gateway Fabric 2.6.x instalado (ver `scripts/install-nginx-gateway-fabric.sh`).
-- Un `Gateway` con listeners HTTP/443 + HTTP/80 (este último solo para redirect).
-- Un `HTTPRoute` que enruta a `frontend` (equivalente al Ingress anterior).
-- Un `HTTPRoute` extra que redirecciona HTTP → HTTPS.
-- (Opcional) Un `ClientSettingsPolicy` que ajusta el `client_max_body_size`.
+State of the architecture **after** the migration:
 
-## Aplicar
+- NGINX Gateway Fabric 2.6.x installed (see `scripts/install-nginx-gateway-fabric.sh`).
+- A `Gateway` with HTTP/443 + HTTP/80 listeners (the latter only for redirect).
+- An `HTTPRoute` that routes to `frontend` (equivalent to the previous Ingress).
+- An extra `HTTPRoute` that redirects HTTP → HTTPS.
+- (Optional) A `ClientSettingsPolicy` that adjusts the `client_max_body_size`.
 
-Primero asegúrate de que NGF esté instalado:
+## Apply
+
+First, make sure NGF is installed:
 
 ```bash
 ./scripts/install-nginx-gateway-fabric.sh
 ```
 
-Luego:
+Then:
 
 ```bash
-# 1. Asegurarte de que existen los namespaces (00-base)
+# 1. Make sure the namespaces exist (00-base)
 kubectl apply -f manifests/00-base/
 
-# 2. Copiar el cert al namespace gateway-system (o usar cert-manager)
+# 2. Copy the cert to the gateway-system namespace (or use cert-manager)
 kubectl get secret shop-tls -n microservices -o yaml \
   | sed 's/namespace: microservices/namespace: gateway-system/' \
   | kubectl apply -f -
 
-# 3. Aplicar los manifiestos del Gateway
+# 3. Apply the Gateway manifests
 kubectl apply -f manifests/03-gateway-api/
 ```
 
-## Verificar
+## Verify
 
 ```bash
-# El GatewayClass debe estar Accepted
+# The GatewayClass must be Accepted
 kubectl get gatewayclass nginx-gateway
 
-# El Gateway debe estar Programmed
+# The Gateway must be Programmed
 kubectl get gateway -n gateway-system
 
-# Los HTTPRoutes deben estar Accepted y con ResolvedRefs
+# The HTTPRoutes must be Accepted with ResolvedRefs
 kubectl get httproute -n microservices
 
-# El NLB del data plane
+# The data plane NLB
 kubectl get svc -n gateway-system
 ```
 
-## Probar
+## Test
 
 ```bash
 GW_LB=$(kubectl get svc -n gateway-system \
   -l gateway.networking.k8s.io/gateway-name=boutique-gateway \
   -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
 
-# Sin DNS configurado todavía, simulamos el hostname:
+# With no DNS configured yet, we simulate the hostname:
 curl -k --resolve shop.example.com:443:$(dig +short $GW_LB | head -1) \
      https://shop.example.com/
 ```
 
-## Archivos
+## Files
 
-| Archivo | Propósito |
-|---------|-----------|
-| `gateway.yaml` | El `Gateway` con listeners HTTP y HTTPS |
-| `httproute-main.yaml` | El `HTTPRoute` principal (frontend) |
-| `httproute-redirect.yaml` | El `HTTPRoute` que hace HTTP → HTTPS |
-| `client-settings.yaml` | Policy NGF para body-size, timeouts (equivalente a anotaciones) |
-| `examples/certificate.yaml.example` | Plantilla de `Certificate` de cert-manager. NO se aplica automáticamente con `kubectl apply -f manifests/03-gateway-api/` porque requiere cert-manager instalado. Copiar y adaptar si tu cluster lo tiene. |
+| File | Purpose |
+|------|---------|
+| `gateway.yaml` | The `Gateway` with HTTP and HTTPS listeners |
+| `httproute-main.yaml` | The main `HTTPRoute` (frontend) |
+| `httproute-redirect.yaml` | The `HTTPRoute` that does HTTP → HTTPS |
+| `client-settings.yaml` | NGF policy for body-size, timeouts (equivalent to annotations) |
+| `examples/certificate.yaml.example` | Template for a cert-manager `Certificate`. NOT applied automatically with `kubectl apply -f manifests/03-gateway-api/` because it requires cert-manager installed. Copy and adapt if your cluster has it. |
 
-## Equivalencia con el Ingress anterior
+## Equivalence with the previous Ingress
 
-El `Ingress` de `02-ingress-nginx/ingress.yaml` se mapea así:
+The `Ingress` from `02-ingress-nginx/ingress.yaml` maps as follows:
 
 ```
 Ingress.spec.tls         → Gateway.spec.listeners[1].tls
