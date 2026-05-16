@@ -1,28 +1,29 @@
-# Kustomization para Online Boutique
+# Kustomization for Online Boutique
 #
-# Aplica el manifiesto upstream v0.10.2 y le hace los siguientes ajustes:
-# - Mueve todo al namespace `microservices`
-# - Remueve el Service `frontend-external` (tipo LoadBalancer) — el upstream
-#   NO trae ningún Ingress, solo este LoadBalancer Service que expone el
-#   frontend directamente. Lo eliminamos porque el acceso público lo gestionamos
-#   a través de Ingress (estado inicial) o Gateway API (estado final).
-# - Aplica labels consistentes
+# Applies the upstream v0.10.2 manifest and patches it with the following
+# adjustments:
+# - Moves everything to the `microservices` namespace
+# - Removes the `frontend-external` Service (type LoadBalancer) — the upstream
+#   does NOT ship any Ingress, just this LoadBalancer Service that exposes
+#   the frontend directly. We remove it because public access is handled via
+#   Ingress (initial state) or Gateway API (final state).
+# - Applies consistent labels
 #
-# Para fijar a una versión distinta del demo, cambiar el ref en `resources`.
+# To pin to a different demo version, change the ref in `resources`.
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 namespace: microservices
 
-# Manifiesto upstream (fija el tag, NO uses main para producción)
+# Upstream manifest (pin the tag, do NOT use main for production)
 resources:
   - https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/v0.10.2/release/kubernetes-manifests.yaml
 
-# Labels comunes — reemplaza el `commonLabels` deprecado (kustomize v5+).
-# `includeSelectors: true` mantiene el comportamiento histórico de inyectar
-# el label en los selectors de los Services/Deployments (para que sigan
-# matcheando los pods). `includeTemplates: true` lo propaga al podTemplate.
+# Common labels — replaces the deprecated `commonLabels` (kustomize v5+).
+# `includeSelectors: true` preserves the historical behavior of injecting
+# the label into Service/Deployment selectors (so they keep matching pods).
+# `includeTemplates: true` propagates it to the podTemplate.
 labels:
   - includeSelectors: true
     includeTemplates: true
@@ -30,8 +31,8 @@ labels:
       app.kubernetes.io/part-of: boutique
       app.kubernetes.io/managed-by: ingress-to-gateway-demo
 
-# Quitamos el LoadBalancer directo del frontend porque lo exponemos
-# vía Ingress / Gateway en otras carpetas
+# Remove the direct LoadBalancer from the frontend because we expose it
+# via Ingress / Gateway in other folders
 patches:
   - target:
       kind: Service

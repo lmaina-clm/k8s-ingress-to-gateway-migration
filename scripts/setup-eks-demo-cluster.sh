@@ -2,34 +2,34 @@
 # =============================================================================
 # setup-eks-demo-cluster.sh
 # =============================================================================
-# Crea un cluster EKS pequeño para validar la migración ingress→Gateway.
-# Pensado para sesiones cortas (1-3h) en una región dedicada.
+# Creates a small EKS cluster to validate the ingress→Gateway migration.
+# Designed for short sessions (1-3h) in a dedicated region.
 #
-# Lo que crea:
-#   - Cluster EKS con OIDC habilitado (necesario para IRSA)
-#   - 1 managed nodegroup con 2 t3.medium
-#   - Addons básicos (vpc-cni, coredns, kube-proxy)
-#   - IAM policy + IRSA service account para AWS Load Balancer Controller
-#   - AWS Load Balancer Controller vía Helm
+# What it creates:
+#   - EKS cluster with OIDC enabled (required for IRSA)
+#   - 1 managed nodegroup with 2 t3.medium nodes
+#   - Default addons (vpc-cni, coredns, kube-proxy)
+#   - IAM policy + IRSA service account for AWS Load Balancer Controller
+#   - AWS Load Balancer Controller via Helm
 #
-# Lo que NO crea:
-#   - ingress-nginx, NGF, Online Boutique (eso lo hace el runbook)
+# What it does NOT create:
+#   - ingress-nginx, NGF, Online Boutique (those come from the runbook)
 #
-# Uso (defaults pensados para una demo en eu-west-1):
+# Usage (defaults tuned for an eu-west-1 demo):
 #   ./scripts/setup-eks-demo-cluster.sh
 #
-# Variables de entorno opcionales:
+# Optional env vars:
 #   CLUSTER_NAME   (default: ingress-gw-demo)
 #   REGION         (default: eu-west-1)
-#   K8S_VERSION    (default: 1.35 — última versión soportada en EKS standard
-#                   support. Versiones <= 1.32 están en extended support con
-#                   precio del control plane mayor a $0.10/h)
+#   K8S_VERSION    (default: 1.35 — latest version in EKS standard support.
+#                   Versions <= 1.32 are in extended support with control
+#                   plane priced above $0.10/h)
 #   NODE_TYPE      (default: t3.medium)
 #   NODE_COUNT     (default: 2)
-#   AWS_LB_CTRL_VERSION   (default: 1.8.3 — versión del Helm chart)
+#   AWS_LB_CTRL_VERSION   (default: 1.8.3 — Helm chart version)
 #
-# Idempotente: corriendo dos veces NO recrea el cluster si ya existe; solo
-# reinstala/upgradea los componentes.
+# Idempotent: running it twice does NOT recreate the cluster if it already
+# exists; it only reinstalls/upgrades the components.
 # =============================================================================
 set -euo pipefail
 
@@ -56,37 +56,37 @@ err()  { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
 # =============================================================================
 log "Preflight checks..."
 
-command -v aws >/dev/null     || err "aws CLI no instalado (instala AWS CLI v2)"
-command -v eksctl >/dev/null  || err "eksctl no instalado (https://eksctl.io/installation/)"
-command -v kubectl >/dev/null || err "kubectl no instalado"
-command -v helm >/dev/null    || err "helm no instalado"
-command -v jq >/dev/null      || err "jq no instalado"
-command -v curl >/dev/null    || err "curl no instalado"
+command -v aws >/dev/null     || err "aws CLI not installed (install AWS CLI v2)"
+command -v eksctl >/dev/null  || err "eksctl not installed (https://eksctl.io/installation/)"
+command -v kubectl >/dev/null || err "kubectl not installed"
+command -v helm >/dev/null    || err "helm not installed"
+command -v jq >/dev/null      || err "jq not installed"
+command -v curl >/dev/null    || err "curl not installed"
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) \
-  || err "AWS credentials no funcionan. Configura AWS_PROFILE o aws configure."
+  || err "AWS credentials not working. Set AWS_PROFILE or run 'aws configure'."
 CALLER=$(aws sts get-caller-identity --query Arn --output text)
 
 log "AWS account:      $ACCOUNT_ID"
 log "AWS caller:       $CALLER"
-log "Región:           $REGION"
+log "Region:           $REGION"
 log "Cluster:          $CLUSTER_NAME"
 log "K8s version:      $K8S_VERSION"
-log "Nodos:            $NODE_COUNT × $NODE_TYPE"
+log "Nodes:            $NODE_COUNT × $NODE_TYPE"
 
 if [ "${SKIP_CONFIRM:-0}" != "1" ]; then
-  read -p "¿Continuar y crear el cluster? (y/N) " -n 1 -r
+  read -p "Continue and create the cluster? (y/N) " -n 1 -r
   echo
-  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelado por usuario"
+  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelled by user"
 fi
 
 # =============================================================================
-# Paso 1: Crear el cluster EKS (si no existe)
+# Step 1: Create the EKS cluster (if it doesn't exist)
 # =============================================================================
 if eksctl get cluster --name "$CLUSTER_NAME" --region "$REGION" >/dev/null 2>&1; then
-  warn "El cluster '$CLUSTER_NAME' ya existe en $REGION. Saltando creación."
+  warn "Cluster '$CLUSTER_NAME' already exists in $REGION. Skipping creation."
 else
-  log "Creando cluster EKS (esto tarda ~15 min)..."
+  log "Creating EKS cluster (this takes ~15 min)..."
 
   TMP_CFG=$(mktemp -t ekscfg.XXXXXX.yaml)
   cat > "$TMP_CFG" <<EOF
@@ -126,29 +126,29 @@ addons:
   - name: kube-proxy
 EOF
 
-  log "Config de eksctl en $TMP_CFG"
+  log "eksctl config at $TMP_CFG"
   eksctl create cluster -f "$TMP_CFG"
   rm -f "$TMP_CFG"
 fi
 
 # =============================================================================
-# Paso 2: Configurar kubectl
+# Step 2: Configure kubectl
 # =============================================================================
-log "Configurando kubeconfig..."
+log "Configuring kubeconfig..."
 aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$REGION" >/dev/null
 kubectl config set-context --current --namespace=default >/dev/null
-ok "kubectl apunta a $(kubectl config current-context)"
+ok "kubectl points to $(kubectl config current-context)"
 
 # =============================================================================
-# Paso 3: AWS Load Balancer Controller — IAM policy
+# Step 3: AWS Load Balancer Controller — IAM policy
 # =============================================================================
-log "Configurando IAM policy para AWS Load Balancer Controller..."
+log "Configuring IAM policy for AWS Load Balancer Controller..."
 
 POLICY_NAME="AWSLoadBalancerControllerIAMPolicy-${CLUSTER_NAME}"
 POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}"
 
 if aws iam get-policy --policy-arn "$POLICY_ARN" >/dev/null 2>&1; then
-  warn "Policy $POLICY_NAME ya existe — reutilizando."
+  warn "Policy $POLICY_NAME already exists — reusing."
 else
   POLICY_DOC=$(mktemp -t lbcpolicy.XXXXXX.json)
   curl -sSL -o "$POLICY_DOC" \
@@ -157,20 +157,20 @@ else
     --policy-name "$POLICY_NAME" \
     --policy-document "file://$POLICY_DOC" >/dev/null
   rm -f "$POLICY_DOC"
-  ok "Policy $POLICY_NAME creada."
+  ok "Policy $POLICY_NAME created."
 fi
 
 # =============================================================================
-# Paso 4: IRSA service account
+# Step 4: IRSA service account
 # =============================================================================
-log "Configurando IRSA service account para AWS LB Controller..."
+log "Configuring IRSA service account for AWS LB Controller..."
 
 if eksctl get iamserviceaccount \
      --cluster "$CLUSTER_NAME" \
      --region "$REGION" \
      --namespace kube-system 2>/dev/null \
    | grep -q aws-load-balancer-controller; then
-  warn "IRSA service account ya existe — saltando."
+  warn "IRSA service account already exists — skipping."
 else
   eksctl create iamserviceaccount \
     --cluster="$CLUSTER_NAME" \
@@ -183,9 +183,9 @@ else
 fi
 
 # =============================================================================
-# Paso 5: Instalar AWS Load Balancer Controller vía Helm
+# Step 5: Install AWS Load Balancer Controller via Helm
 # =============================================================================
-log "Instalando AWS Load Balancer Controller v${AWS_LB_CTRL_VERSION}..."
+log "Installing AWS Load Balancer Controller v${AWS_LB_CTRL_VERSION}..."
 
 helm repo add eks https://aws.github.io/eks-charts --force-update >/dev/null
 helm repo update >/dev/null
@@ -204,21 +204,21 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
   --wait \
   --timeout 5m
 
-ok "AWS Load Balancer Controller instalado."
+ok "AWS Load Balancer Controller installed."
 
 # =============================================================================
-# Resumen
+# Summary
 # =============================================================================
 echo
-ok "Cluster listo."
+ok "Cluster ready."
 log ""
-log "Resumen:"
+log "Summary:"
 log "  Cluster:       $CLUSTER_NAME ($REGION)"
 log "  Account:       $ACCOUNT_ID"
-log "  Nodos:         $NODE_COUNT × $NODE_TYPE"
+log "  Nodes:         $NODE_COUNT × $NODE_TYPE"
 log "  kubectl ctx:   $(kubectl config current-context)"
 log ""
-log "Próximo paso: seguir docs/09-fast-validation-runbook.md desde la Fase 2."
+log "Next step: follow docs/09-fast-validation-runbook.md from Phase 2."
 log ""
-log "Para destruir todo cuando termines:"
+log "To destroy everything when done:"
 log "  ./scripts/teardown-eks-demo-cluster.sh"

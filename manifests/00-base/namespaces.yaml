@@ -1,15 +1,15 @@
 # =============================================================================
-# Namespaces base
+# Base namespaces
 # =============================================================================
-# - microservices: aloja Online Boutique y sus HTTPRoutes
-# - gateway-system: aloja el Gateway + el data plane que NGF crea
-# - nginx-gateway: aloja el control plane de NGF (lo crea Helm; este manifiesto
-#                  está aquí solo como referencia, NO aplicar manualmente)
+# - microservices: hosts Online Boutique and its HTTPRoutes
+# - gateway-system: hosts the Gateway + the data plane that NGF creates
+# - nginx-gateway: hosts the NGF control plane (created by Helm; this manifest
+#                  is here only for reference, do NOT apply manually)
 #
-# Este archivo NO depende de los CRDs de Gateway API, así que se puede aplicar
-# en cualquier momento (incluso antes de instalar NGF). Para el ReferenceGrant
-# que SÍ depende de los CRDs, ver `reference-grant.yaml` y aplicarlo DESPUÉS
-# de instalar Gateway API.
+# This file does NOT depend on Gateway API CRDs, so it can be applied at any
+# time (even before installing NGF). For the ReferenceGrant that DOES depend
+# on the CRDs, see `reference-grant.yaml` and apply it AFTER installing
+# Gateway API.
 # =============================================================================
 ---
 apiVersion: v1
@@ -17,9 +17,9 @@ kind: Namespace
 metadata:
   name: microservices
   labels:
-    # Label que el listener del Gateway usa para autorizar HTTPRoutes desde este NS
+    # Label the Gateway's listener uses to authorize HTTPRoutes from this NS
     gateway-access: "true"
-    # PodSecurityStandards (ajustar a la política de tu org)
+    # PodSecurityStandards (adjust to your org's policy)
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/audit: restricted
 ---

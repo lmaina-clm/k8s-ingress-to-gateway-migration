@@ -1,15 +1,15 @@
 # =============================================================================
-# Ingress de la API de Online Boutique
+# Online Boutique API Ingress
 # =============================================================================
-# Único Ingress que expone el `frontend`. Las anotaciones reflejan un caso
-# típico de producción:
+# Single Ingress exposing `frontend`. The annotations reflect a typical
+# production case:
 #
-# - force-ssl-redirect: redirige todo HTTP a HTTPS
-# - proxy-body-size: permite hasta 10MB en POST (uploads de checkout)
-# - proxy-read/connect-timeout: tolera respuestas lentas del checkoutservice
+# - force-ssl-redirect: redirects all HTTP traffic to HTTPS
+# - proxy-body-size: allows up to 10MB on POST (checkout uploads)
+# - proxy-read/connect-timeout: tolerates slow responses from checkoutservice
 #
-# Si tu Ingress real tiene más anotaciones, agrégalas aquí o en sus equivalentes
-# del Gateway (ver docs/03-ingress-vs-gateway.md).
+# If your real Ingress has more annotations, add them here or to their
+# equivalents on the Gateway (see docs/03-ingress-vs-gateway.md).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -17,13 +17,13 @@ metadata:
   name: boutique
   namespace: microservices
   annotations:
-    # Anotaciones típicas de ingress-nginx
+    # Typical ingress-nginx annotations
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
-    # Tracking de quién maneja este recurso
+    # Tracking of who manages this resource
     app.kubernetes.io/managed-by: ingress-to-gateway-demo
 spec:
   ingressClassName: nginx

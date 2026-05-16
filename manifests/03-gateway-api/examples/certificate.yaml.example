@@ -1,15 +1,15 @@
 # =============================================================================
-# Certificate gestionado por cert-manager (OPCIONAL)
+# Certificate managed by cert-manager (OPTIONAL)
 # =============================================================================
-# Si usas cert-manager (recomendado), crea el Certificate en el mismo namespace
-# que el Gateway. cert-manager 1.14+ entiende Gateway API y emite/renueva el
-# Secret que referencia el Gateway.
+# If you use cert-manager (recommended), create the Certificate in the same
+# namespace as the Gateway. cert-manager 1.14+ understands Gateway API and
+# issues/renews the Secret referenced by the Gateway.
 #
-# Requiere un ClusterIssuer pre-creado (ej. letsencrypt-prod con HTTP-01 o
+# Requires a pre-created ClusterIssuer (e.g. letsencrypt-prod with HTTP-01 or
 # DNS-01 challenge).
 #
-# Si NO usas cert-manager, deja este archivo fuera del kustomize/apply y copia
-# manualmente el Secret al namespace gateway-system.
+# If you do NOT use cert-manager, leave this file out of the kustomize/apply
+# and manually copy the Secret to the gateway-system namespace.
 # =============================================================================
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -20,19 +20,19 @@ metadata:
     app.kubernetes.io/part-of: boutique
     app.kubernetes.io/managed-by: ingress-to-gateway-demo
 spec:
-  # El Secret resultante. El Gateway lo referencia en listeners[].tls.certificateRefs
+  # Resulting Secret. The Gateway references it in listeners[].tls.certificateRefs
   secretName: shop-tls
 
-  # Auto-renueva 30 días antes de expirar
-  renewBefore: 720h  # 30 días
+  # Auto-renew 30 days before expiration
+  renewBefore: 720h  # 30 days
 
-  # Duración estándar Let's Encrypt = 90 días
-  duration: 2160h    # 90 días
+  # Standard Let's Encrypt duration = 90 days
+  duration: 2160h    # 90 days
 
   dnsNames:
     - shop.example.com
 
-  # ClusterIssuer pre-existente. Ajusta el nombre al tuyo.
+  # Pre-existing ClusterIssuer. Adjust the name to yours.
   issuerRef:
     name: letsencrypt-prod
     kind: ClusterIssuer

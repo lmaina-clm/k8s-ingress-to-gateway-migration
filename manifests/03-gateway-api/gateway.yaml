@@ -1,16 +1,16 @@
 # =============================================================================
-# Gateway: el punto de entrada del clúster
+# Gateway: the cluster's entry point
 # =============================================================================
-# Este recurso lo gestiona el equipo de plataforma / SRE.
-# Define los listeners (puertos + protocolos + TLS) y qué namespaces pueden
-# adjuntar HTTPRoutes a este Gateway.
+# Managed by the platform / SRE team.
+# Defines the listeners (ports + protocols + TLS) and which namespaces can
+# attach HTTPRoutes to this Gateway.
 #
-# - Listener `http`: puerto 80, solo para que los HTTPRoute redirect funcionen
-# - Listener `https`: puerto 443 con TLS terminado en el Gateway
+# - Listener `http`: port 80, only so the HTTPRoute redirect works
+# - Listener `https`: port 443 with TLS terminated at the Gateway
 #
-# El data plane (NGINX pods + NLB) lo crea NGF automáticamente al ver este
-# recurso. La cantidad de replicas y configuración del data plane se ajusta
-# vía NginxProxy (no en el Gateway directamente).
+# The data plane (NGINX pods + NLB) is created by NGF automatically when it
+# sees this resource. The data plane's replica count and configuration are
+# adjusted via NginxProxy (not in the Gateway directly).
 # =============================================================================
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
@@ -22,19 +22,19 @@ metadata:
   labels:
     app.kubernetes.io/part-of: boutique
 spec:
-  # GatewayClass creado por el chart de NGF con
-  # `nginxGateway.gatewayClassName=nginx-gateway`. Renombrado desde el default
-  # `nginx` para evitar confusión con `ingressClassName: nginx` durante la
-  # coexistencia.
+  # GatewayClass created by the NGF chart with
+  # `nginxGateway.gatewayClassName=nginx-gateway`. Renamed from the default
+  # `nginx` to avoid confusion with `ingressClassName: nginx` during
+  # coexistence.
   gatewayClassName: nginx-gateway
-  # Anotaciones de infraestructura para el NLB (vía AWS Load Balancer Controller)
+  # Infrastructure annotations for the NLB (via AWS Load Balancer Controller)
   infrastructure:
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-type: external
       service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
       service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
       service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-      # Para health checks correctos
+      # For correct health checks
       service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
   listeners:
     - name: http
@@ -57,8 +57,8 @@ spec:
           - kind: Secret
             group: ""
             name: shop-tls
-            # Si usas cert-manager con un Certificate en otro namespace,
-            # agrega `namespace: <ns>` y crea un ReferenceGrant.
+            # If you use cert-manager with a Certificate in another namespace,
+            # add `namespace: <ns>` and create a ReferenceGrant.
       allowedRoutes:
         namespaces:
           from: Selector

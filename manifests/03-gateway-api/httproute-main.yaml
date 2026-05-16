@@ -1,11 +1,11 @@
 # =============================================================================
-# HTTPRoute principal: equivale al Ingress anterior
+# Main HTTPRoute: equivalent to the previous Ingress
 # =============================================================================
-# Este recurso lo gestiona el equipo de aplicación (Online Boutique).
-# Vive en el namespace `microservices`, no en `gateway-system`, y referencia
-# cross-namespace al Gateway gracias al ReferenceGrant en 00-base.
+# Managed by the application team (Online Boutique).
+# Lives in the `microservices` namespace, not `gateway-system`, and references
+# the Gateway cross-namespace thanks to the ReferenceGrant in 00-base.
 #
-# Equivalencia con el Ingress:
+# Mapping from the Ingress:
 #
 #   Ingress.spec.rules[0].host          → hostnames[0]
 #   Ingress.spec.rules[0].http.paths[0] → rules[0].matches[0]
@@ -25,7 +25,7 @@ spec:
   parentRefs:
     - name: boutique-gateway
       namespace: gateway-system
-      # Adjuntar solo al listener HTTPS — el listener HTTP solo para redirect
+      # Attach only to the HTTPS listener — the HTTP listener is only for redirect
       sectionName: https
   hostnames:
     - shop.example.com
@@ -37,5 +37,5 @@ spec:
       backendRefs:
         - name: frontend
           port: 80
-          # weight: 100 es el default cuando solo hay un backend.
-          # Para tráfico canary entre versiones, ver el ejemplo en 04-migration/
+          # weight: 100 is the default when there's only one backend.
+          # For canary traffic between versions, see the example in 04-migration/

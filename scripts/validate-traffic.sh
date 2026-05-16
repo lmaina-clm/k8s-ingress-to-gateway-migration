@@ -2,23 +2,23 @@
 # =============================================================================
 # validate-traffic.sh
 # =============================================================================
-# Smoke tests contra el NLB de ingress-nginx, el de NGINX Gateway Fabric, o
-# ambos. Hace requests a una lista de paths usando el Host: header, así no
-# depende del estado del DNS público.
+# Smoke tests against the ingress-nginx NLB, the NGINX Gateway Fabric NLB, or
+# both. Makes requests to a list of paths using the Host: header, so it does
+# not depend on public DNS state.
 #
-# Uso:
-#   ./scripts/validate-traffic.sh ingress          # solo ingress-nginx
-#   ./scripts/validate-traffic.sh gateway          # solo NGF
-#   ./scripts/validate-traffic.sh both             # ambos, en paralelo
-#   ./scripts/validate-traffic.sh ingress <NLB>    # forzar hostname del NLB
+# Usage:
+#   ./scripts/validate-traffic.sh ingress          # ingress-nginx only
+#   ./scripts/validate-traffic.sh gateway          # NGF only
+#   ./scripts/validate-traffic.sh both             # both, in parallel
+#   ./scripts/validate-traffic.sh ingress <NLB>    # force the NLB hostname
 #
-# Salida: tabla con status, latencia, tamaño respuesta por path/target.
-# Exit code: 0 si todos los requests son <500, 1 si algún 5xx.
+# Output: table with status, latency, response size per path/target.
+# Exit code: 0 if all requests are <500, 1 if any 5xx.
 #
-# Variables de entorno opcionales:
+# Optional env vars:
 #   HOSTNAME_HEADER   (default: shop.example.com)
 #   PROTOCOL          (default: https)
-#   PATHS             (default: lista de paths de Online Boutique)
+#   PATHS             (default: list of Online Boutique paths)
 # =============================================================================
 set -uo pipefail
 
@@ -34,14 +34,14 @@ NC='\033[0m'
 
 usage() {
   cat <<EOF
-Uso: $0 <target> [nlb_hostname]
+Usage: $0 <target> [nlb_hostname]
 
   target: ingress | gateway | both
 
-Variables de entorno:
-  HOSTNAME_HEADER   hostname para el Host: header (default: shop.example.com)
+Env vars:
+  HOSTNAME_HEADER   hostname for the Host: header (default: shop.example.com)
   PROTOCOL          http | https (default: https)
-  PATHS             paths a probar, separados por espacios
+  PATHS             paths to test, space-separated
 EOF
   exit 1
 }
@@ -55,7 +55,7 @@ log() { echo -e "${BLUE}[validate]${NC} $*"; }
 ok() { echo -e "${GREEN}✓${NC} $*"; }
 fail() { echo -e "${RED}✗${NC} $*"; }
 
-# Resolver el NLB hostname según el target
+# Resolve the NLB hostname for the given target
 get_ingress_nlb() {
   if [ -n "$FORCED_NLB" ] && [ "$TARGET" = "ingress" ]; then
     echo "$FORCED_NLB"
@@ -70,32 +70,33 @@ get_gateway_nlb() {
     echo "$FORCED_NLB"
     return
   fi
-  # Buscar el Service que NGF crea para el data plane
+  # Find the Service NGF creates for the data plane
   kubectl -n gateway-system get svc \
     -l gateway.networking.k8s.io/gateway-name=boutique-gateway \
     -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null
 }
 
-# Test contra un NLB específico
+# Test against a specific NLB
 test_nlb() {
   local label="$1"
   local nlb="$2"
   local failed=0
 
   if [ -z "$nlb" ]; then
-    fail "$label: no se pudo determinar hostname del NLB"
+    fail "$label: could not determine NLB hostname"
     return 1
   fi
 
-  log "Probando $label contra $nlb (Host: $HOSTNAME_HEADER)"
+  log "Testing $label against $nlb (Host: $HOSTNAME_HEADER)"
   echo
 
-  # Resolver el NLB a una IP (curl --resolve necesita IP, no hostname).
-  # Usamos dig porque es portable entre Linux y macOS (getent no existe en macOS).
+  # Resolve the NLB to an IP (curl --resolve needs IP, not hostname).
+  # We use dig because it's portable between Linux and macOS (getent doesn't
+  # exist on macOS).
   local nlb_ip
   nlb_ip=$(dig +short "$nlb" 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
   if [ -z "$nlb_ip" ]; then
-    fail "$label: no se pudo resolver IP de $nlb (¿dig instalado? ¿DNS funcionando?)"
+    fail "$label: could not resolve IP for $nlb (is dig installed? is DNS working?)"
     return 1
   fi
 
@@ -106,8 +107,8 @@ test_nlb() {
     port=80
   fi
 
-  printf "  %-40s  %-7s  %-10s  %-10s\n" "PATH" "STATUS" "LATENCIA" "TAMAÑO"
-  printf "  %-40s  %-7s  %-10s  %-10s\n" "----" "------" "--------" "------"
+  printf "  %-40s  %-7s  %-10s  %-10s\n" "PATH" "STATUS" "LATENCY" "SIZE"
+  printf "  %-40s  %-7s  %-10s  %-10s\n" "----" "------" "-------" "----"
 
   for path in $PATHS; do
     local result
@@ -122,7 +123,7 @@ test_nlb() {
     local latency="${rest%%|*}"
     local size="${rest##*|}"
 
-    # latencia en ms
+    # latency in ms
     local latency_ms
     latency_ms=$(awk "BEGIN{printf \"%.0f\", $latency*1000}" 2>/dev/null || echo "?")
 
@@ -131,7 +132,7 @@ test_nlb() {
       status_color="$RED"
       failed=$((failed+1))
     elif [[ "$status" =~ ^4 ]]; then
-      # 301/302/308 ya están manejados arriba; 4xx puede ser intencional (eg 404 en path inexistente)
+      # 301/302/308 are handled above; 4xx can be intentional (e.g. 404 on a nonexistent path)
       status_color="$YELLOW"
     fi
 
@@ -141,10 +142,10 @@ test_nlb() {
 
   echo
   if [ $failed -gt 0 ]; then
-    fail "$label: $failed request(s) con 5xx o error"
+    fail "$label: $failed request(s) returned 5xx or error"
     return 1
   else
-    ok "$label: todos los requests OK"
+    ok "$label: all requests OK"
     return 0
   fi
 }

@@ -2,18 +2,18 @@
 # =============================================================================
 # install-ingress-nginx.sh
 # =============================================================================
-# Instala ingress-nginx (último release v1.11.x) en el clúster, configurado
-# para EKS con un NLB. Idempotente: corriendo dos veces no rompe.
+# Installs ingress-nginx (latest v1.11.x release) on the cluster, configured
+# for EKS with an NLB. Idempotent: running it twice doesn't break.
 #
-# Uso:
+# Usage:
 #   ./scripts/install-ingress-nginx.sh
 #
-# Variables de entorno opcionales:
+# Optional env vars:
 #   INGRESS_NS         (default: ingress-nginx)
-#   INGRESS_VERSION    (default: 4.11.3 — Helm chart, no la versión del binario)
-#   AWS_LB_SCHEME      (default: internet-facing; usar "internal" para LB privado)
-#   SKIP_CONFIRM       (default: 0 — set a "1" para no preguntar antes de
-#                      instalar; útil en runbooks automatizados)
+#   INGRESS_VERSION    (default: 4.11.3 — Helm chart version, not the binary)
+#   AWS_LB_SCHEME      (default: internet-facing; use "internal" for a private LB)
+#   SKIP_CONFIRM       (default: 0 — set to "1" to skip the interactive
+#                      confirmation; useful in automated runbooks)
 # =============================================================================
 set -euo pipefail
 
@@ -33,26 +33,26 @@ warn() { echo -e "${YELLOW}[install-ingress-nginx]${NC} $*"; }
 err() { echo -e "${RED}[install-ingress-nginx]${NC} $*"; exit 1; }
 
 # Preflight
-command -v helm >/dev/null || err "helm no está instalado"
-command -v kubectl >/dev/null || err "kubectl no está instalado"
+command -v helm >/dev/null || err "helm is not installed"
+command -v kubectl >/dev/null || err "kubectl is not installed"
 
 CTX=$(kubectl config current-context)
-log "Contexto actual: $CTX"
+log "Current context: $CTX"
 if [ "$SKIP_CONFIRM" != "1" ]; then
-  read -p "¿Continuar con este clúster? (y/N) " -n 1 -r
+  read -p "Continue with this cluster? (y/N) " -n 1 -r
   echo
-  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelado por usuario"
+  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelled by user"
 else
-  log "SKIP_CONFIRM=1 — saltando confirmación interactiva"
+  log "SKIP_CONFIRM=1 — skipping interactive confirmation"
 fi
 
-# Repo Helm
-log "Agregando repo Helm de ingress-nginx..."
+# Helm repo
+log "Adding ingress-nginx Helm repo..."
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update
 helm repo update
 
-# Instalar / upgrade
-log "Instalando ingress-nginx versión $INGRESS_VERSION en namespace $INGRESS_NS..."
+# Install / upgrade
+log "Installing ingress-nginx version $INGRESS_VERSION in namespace $INGRESS_NS..."
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
   --namespace "$INGRESS_NS" \
   --create-namespace \
@@ -70,7 +70,7 @@ helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
   --wait \
   --timeout 5m
 
-log "Esperando a que el LoadBalancer tenga hostname..."
+log "Waiting for the LoadBalancer to get a hostname..."
 for i in {1..30}; do
   LB_HOSTNAME=$(kubectl -n "$INGRESS_NS" get svc ingress-nginx-controller \
     -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
@@ -82,11 +82,11 @@ for i in {1..30}; do
 done
 echo
 
-[ -n "$LB_HOSTNAME" ] || err "LoadBalancer no obtuvo hostname tras 5 min"
+[ -n "$LB_HOSTNAME" ] || err "LoadBalancer didn't get a hostname after 5 min"
 
-log "✅ Instalación completa."
+log "✅ Installation complete."
 log "   NLB hostname: $LB_HOSTNAME"
 log ""
-log "Próximos pasos:"
-log "   1. Aplicar el Ingress: kubectl apply -f manifests/02-ingress-nginx/"
-log "   2. Configurar DNS para apuntar a $LB_HOSTNAME"
+log "Next steps:"
+log "   1. Apply the Ingress: kubectl apply -f manifests/02-ingress-nginx/"
+log "   2. Configure DNS to point to $LB_HOSTNAME"

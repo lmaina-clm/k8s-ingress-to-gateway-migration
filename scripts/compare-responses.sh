@@ -2,23 +2,23 @@
 # =============================================================================
 # compare-responses.sh
 # =============================================================================
-# Compara las respuestas entre el NLB de ingress-nginx y el de NGINX Gateway
-# Fabric para una lista de paths. Es la red de seguridad antes de hacer el
-# canary DNS: si las respuestas no coinciden (sin contar headers volátiles),
-# probablemente hay una anotación o feature mal migrada.
+# Compares responses between the ingress-nginx NLB and the NGINX Gateway
+# Fabric NLB for a list of paths. It's the safety net before the DNS canary:
+# if responses don't match (excluding volatile headers), there's probably a
+# misturned annotation or a feature that wasn't migrated correctly.
 #
-# Uso:
+# Usage:
 #   ./scripts/compare-responses.sh
-#   ./scripts/compare-responses.sh /path1 /path2 /path3   # paths custom
+#   ./scripts/compare-responses.sh /path1 /path2 /path3   # custom paths
 #
-# Variables de entorno:
+# Env vars:
 #   HOSTNAME_HEADER   default: shop.example.com
 #   PROTOCOL          default: https
 #
 # Exit code:
-#   0 = todos los paths coinciden
-#   1 = al menos un path difiere significativamente
-#   2 = error de configuración
+#   0 = all paths match
+#   1 = at least one path differs significantly
+#   2 = configuration error
 # =============================================================================
 set -uo pipefail
 
@@ -52,7 +52,7 @@ ok()   { echo -e "${GREEN}✓${NC} $*"; }
 diff_warn() { echo -e "${YELLOW}~${NC} $*"; }
 fail() { echo -e "${RED}✗${NC} $*"; }
 
-# Descubrir NLBs
+# Discover NLBs
 ING_NLB=$(kubectl -n ingress-nginx get svc ingress-nginx-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 GW_NLB=$(kubectl -n gateway-system get svc \
@@ -60,25 +60,25 @@ GW_NLB=$(kubectl -n gateway-system get svc \
   -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 
 if [ -z "$ING_NLB" ]; then
-  fail "No se encontró el NLB de ingress-nginx (svc ingress-nginx-controller en ns ingress-nginx)"
+  fail "Could not find the ingress-nginx NLB (svc ingress-nginx-controller in ns ingress-nginx)"
   exit 2
 fi
 if [ -z "$GW_NLB" ]; then
-  fail "No se encontró el NLB de NGF (svc con label gateway.networking.k8s.io/gateway-name=boutique-gateway en ns gateway-system)"
+  fail "Could not find the NGF NLB (svc with label gateway.networking.k8s.io/gateway-name=boutique-gateway in ns gateway-system)"
   exit 2
 fi
 
 log "Ingress NLB:  $ING_NLB"
 log "Gateway NLB:  $GW_NLB"
 log "Host header:  $HOSTNAME_HEADER"
-log "Paths:        ${#PATHS[@]} a comparar"
+log "Paths:        ${#PATHS[@]} to compare"
 echo
 
-# Resolver IPs
+# Resolve IPs
 ING_IP=$(dig +short "$ING_NLB" | grep -E '^[0-9]+\.' | head -1)
 GW_IP=$(dig +short "$GW_NLB" | grep -E '^[0-9]+\.' | head -1)
 if [ -z "$ING_IP" ] || [ -z "$GW_IP" ]; then
-  fail "No se pudo resolver IPs para uno de los NLBs"
+  fail "Could not resolve IPs for one of the NLBs"
   exit 2
 fi
 
@@ -86,21 +86,21 @@ PORT=443
 [ "$PROTOCOL" = "http" ] && PORT=80
 
 TMP=$(mktemp -d)
-# Comillas simples para que $TMP se expanda al ejecutar el trap, no al definirlo
+# Single quotes so $TMP expands when the trap fires, not when it's defined
 trap 'rm -rf "$TMP"' EXIT
 
-# Headers que se ignoran en la comparación porque son volátiles, esperados
-# diferentes entre los dos controllers, o diferencias conocidas y documentadas.
+# Headers ignored in the comparison because they're volatile, expected to
+# differ between the two controllers, or known and documented differences.
 #
-# Notas sobre headers documentados como "esperados distintos":
-# - `strict-transport-security`: ingress-nginx lo inyecta por defecto en HTTPS,
-#   NGF no. Ver docs/03-ingress-vs-gateway.md sección "Headers de seguridad".
+# Notes on headers documented as "expected to differ":
+# - `strict-transport-security`: ingress-nginx injects it by default on HTTPS,
+#   NGF doesn't. See docs/03-ingress-vs-gateway.md section "Security headers".
 IGNORE_HEADERS_REGEX='^(date|x-request-id|x-correlation-id|server|x-trace-id|set-cookie|etag|via|nel|report-to|cf-ray|strict-transport-security)'
 
-# Paths donde la app sirve contenido dinámico distinto en cada request
-# (ej. recomendaciones aleatorias del frontend de Online Boutique). Para estos,
-# solo comparamos status code + headers, NO el body. Si quieres compararlos
-# todos, pasa COMPARE_DYNAMIC_BODY=1.
+# Paths where the app serves different dynamic content per request
+# (e.g. random recommendations from Online Boutique's frontend). For these,
+# we only compare status code + headers, NOT the body. To compare them all,
+# pass COMPARE_DYNAMIC_BODY=1.
 DYNAMIC_BODY_PATHS_REGEX='^(/|/cart|/setCurrency)$'
 COMPARE_DYNAMIC_BODY="${COMPARE_DYNAMIC_BODY:-0}"
 
@@ -118,7 +118,7 @@ fetch_to_files() {
     > "$TMP/${prefix}_meta" 2>/dev/null || echo "ERROR|0|0" > "$TMP/${prefix}_meta"
 }
 
-# Reporte
+# Report
 TOTAL=0
 MATCHING=0
 DIFFERING=0
@@ -135,21 +135,21 @@ for path in "${PATHS[@]}"; do
   ing_status="${ing_meta%%|*}"
   gw_status="${gw_meta%%|*}"
 
-  # Caso 1: error en uno o ambos
+  # Case 1: error in one or both
   if [ "$ing_status" = "ERROR" ] || [ "$gw_status" = "ERROR" ]; then
-    fail "$path: error de conexión (ingress=$ing_status, gateway=$gw_status)"
+    fail "$path: connection error (ingress=$ing_status, gateway=$gw_status)"
     ERRORED=$((ERRORED+1))
     continue
   fi
 
-  # Caso 2: status codes distintos
+  # Case 2: different status codes
   if [ "$ing_status" != "$gw_status" ]; then
-    fail "$path: status codes distintos (ingress=$ing_status, gateway=$gw_status)"
+    fail "$path: different status codes (ingress=$ing_status, gateway=$gw_status)"
     DIFFERING=$((DIFFERING+1))
     continue
   fi
 
-  # Caso 3: body diff (saltado para paths con contenido dinámico, salvo override)
+  # Case 3: body diff (skipped for dynamic-content paths unless override)
   body_diff=""
   if [[ "$path" =~ $DYNAMIC_BODY_PATHS_REGEX ]] && [ "$COMPARE_DYNAMIC_BODY" != "1" ]; then
     : # skip body comparison for dynamic-content paths
@@ -157,7 +157,7 @@ for path in "${PATHS[@]}"; do
     body_diff=$(diff <(cat "$TMP/ing_body") <(cat "$TMP/gw_body") | head -20 || true)
   fi
 
-  # Caso 4: headers significativos distintos
+  # Case 4: significant headers differ
   ing_headers=$(grep -iE -v "$IGNORE_HEADERS_REGEX" "$TMP/ing_headers" | sort | tr -d '\r' || true)
   gw_headers=$(grep -iE -v "$IGNORE_HEADERS_REGEX" "$TMP/gw_headers" | sort | tr -d '\r' || true)
   header_diff=""
@@ -169,7 +169,7 @@ for path in "${PATHS[@]}"; do
     ok "$path: status=$ing_status, body match, headers match"
     MATCHING=$((MATCHING+1))
   else
-    diff_warn "$path: status=$ing_status, pero hay diferencias"
+    diff_warn "$path: status=$ing_status, but there are differences"
     if [ -n "$body_diff" ]; then
       echo -e "    ${YELLOW}body diff:${NC}"
       echo "$body_diff" | sed 's/^/      /'
@@ -183,21 +183,21 @@ for path in "${PATHS[@]}"; do
 done
 
 echo
-log "Resumen: $TOTAL paths probados"
-log "  Match:       $MATCHING"
-log "  Diferencias: $DIFFERING"
-log "  Errores:     $ERRORED"
+log "Summary: $TOTAL paths tested"
+log "  Match:        $MATCHING"
+log "  Differing:    $DIFFERING"
+log "  Errors:       $ERRORED"
 echo
 
 if [ $ERRORED -gt 0 ]; then
-  fail "Hubo errores de conexión. NO continuar con el canary hasta resolverlos."
+  fail "There were connection errors. Do NOT continue with the canary until they're resolved."
   exit 1
 fi
 if [ $DIFFERING -gt 0 ]; then
-  diff_warn "Hay diferencias entre los dos controllers. Revísalas antes del canary."
-  diff_warn "Algunas son aceptables (server header, set-cookie de sesión nueva); otras no."
+  diff_warn "There are differences between the two controllers. Review them before the canary."
+  diff_warn "Some are acceptable (server header, new session set-cookie); others are not."
   exit 1
 fi
 
-ok "Todos los paths coinciden. Es seguro continuar con el canary DNS."
+ok "All paths match. Safe to continue with the DNS canary."
 exit 0

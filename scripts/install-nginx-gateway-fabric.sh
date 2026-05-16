@@ -2,19 +2,19 @@
 # =============================================================================
 # install-nginx-gateway-fabric.sh
 # =============================================================================
-# Instala Gateway API CRDs (v1.5.1) + NGINX Gateway Fabric (v2.6.x) en el
-# clúster. Idempotente.
+# Installs Gateway API CRDs (v1.5.1) + NGINX Gateway Fabric (v2.6.x) on the
+# cluster. Idempotent.
 #
-# Uso:
+# Usage:
 #   ./scripts/install-nginx-gateway-fabric.sh
 #
-# Variables de entorno opcionales:
+# Optional env vars:
 #   GATEWAY_API_VERSION    (default: v1.5.1)
 #   NGF_NAMESPACE          (default: nginx-gateway)
 #   NGF_VERSION            (default: 2.6.0)
 #   GATEWAY_CLASS_NAME     (default: nginx-gateway)
-#   SKIP_CONFIRM           (default: 0 — set a "1" para no preguntar antes de
-#                          instalar; útil en runbooks automatizados)
+#   SKIP_CONFIRM           (default: 0 — set to "1" to skip the interactive
+#                          confirmation; useful in automated runbooks)
 # =============================================================================
 set -euo pipefail
 
@@ -34,24 +34,24 @@ warn() { echo -e "${YELLOW}[install-ngf]${NC} $*"; }
 err() { echo -e "${RED}[install-ngf]${NC} $*"; exit 1; }
 
 # Preflight
-command -v helm >/dev/null || err "helm no está instalado"
-command -v kubectl >/dev/null || err "kubectl no está instalado"
+command -v helm >/dev/null || err "helm is not installed"
+command -v kubectl >/dev/null || err "kubectl is not installed"
 
 CTX=$(kubectl config current-context)
-log "Contexto actual: $CTX"
+log "Current context: $CTX"
 if [ "$SKIP_CONFIRM" != "1" ]; then
-  read -p "¿Continuar con este clúster? (y/N) " -n 1 -r
+  read -p "Continue with this cluster? (y/N) " -n 1 -r
   echo
-  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelado por usuario"
+  [[ $REPLY =~ ^[Yy]$ ]] || err "Cancelled by user"
 else
-  log "SKIP_CONFIRM=1 — saltando confirmación interactiva"
+  log "SKIP_CONFIRM=1 — skipping interactive confirmation"
 fi
 
-# Paso 1: Gateway API CRDs
-log "Instalando Gateway API CRDs ($GATEWAY_API_VERSION)..."
+# Step 1: Gateway API CRDs
+log "Installing Gateway API CRDs ($GATEWAY_API_VERSION)..."
 kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 
-log "Esperando a que los CRDs estén establecidos..."
+log "Waiting for CRDs to be established..."
 for crd in gateways.gateway.networking.k8s.io \
            gatewayclasses.gateway.networking.k8s.io \
            httproutes.gateway.networking.k8s.io \
@@ -60,11 +60,11 @@ for crd in gateways.gateway.networking.k8s.io \
   kubectl wait --for=condition=Established crd/$crd --timeout=60s
 done
 
-# Paso 2: NGINX Gateway Fabric vía Helm (OCI registry)
-log "Instalando NGINX Gateway Fabric $NGF_VERSION..."
+# Step 2: NGINX Gateway Fabric via Helm (OCI registry)
+log "Installing NGINX Gateway Fabric $NGF_VERSION..."
 
-# Crear namespace si no existe (Helm 3.14+ lo crea con --create-namespace, pero
-# por compat hacemos esto explícitamente)
+# Create namespace if it doesn't exist (Helm 3.14+ creates it with
+# --create-namespace, but we do it explicitly for compat)
 kubectl get namespace "$NGF_NAMESPACE" >/dev/null 2>&1 || \
   kubectl create namespace "$NGF_NAMESPACE"
 
@@ -80,8 +80,8 @@ helm upgrade --install ngf oci://ghcr.io/nginx/charts/nginx-gateway-fabric \
   --wait \
   --timeout 5m
 
-# Paso 3: Verificar que el GatewayClass está aceptado
-log "Verificando GatewayClass '$GATEWAY_CLASS_NAME'..."
+# Step 3: Verify the GatewayClass is accepted
+log "Verifying GatewayClass '$GATEWAY_CLASS_NAME'..."
 for i in {1..30}; do
   STATUS=$(kubectl get gatewayclass "$GATEWAY_CLASS_NAME" \
     -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true)
@@ -93,12 +93,12 @@ for i in {1..30}; do
 done
 echo
 
-[ "$STATUS" = "True" ] || err "GatewayClass '$GATEWAY_CLASS_NAME' no está Accepted tras 60s"
+[ "$STATUS" = "True" ] || err "GatewayClass '$GATEWAY_CLASS_NAME' is not Accepted after 60s"
 
-log "✅ Instalación completa."
+log "✅ Installation complete."
 log ""
-log "Próximos pasos:"
-log "   1. Aplicar namespaces y ReferenceGrant: kubectl apply -f manifests/00-base/"
-log "   2. Copiar el cert TLS al namespace gateway-system (o usar cert-manager)"
-log "   3. Aplicar Gateway y HTTPRoutes: kubectl apply -f manifests/03-gateway-api/"
-log "   4. Verificar: kubectl get gateway -A && kubectl get httproute -A"
+log "Next steps:"
+log "   1. Apply namespaces and ReferenceGrant: kubectl apply -f manifests/00-base/"
+log "   2. Copy the TLS cert to the gateway-system namespace (or use cert-manager)"
+log "   3. Apply Gateway and HTTPRoutes: kubectl apply -f manifests/03-gateway-api/"
+log "   4. Verify: kubectl get gateway -A && kubectl get httproute -A"

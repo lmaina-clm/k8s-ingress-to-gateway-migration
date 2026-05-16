@@ -1,11 +1,11 @@
 # =============================================================================
-# ClientSettingsPolicy: equivalente a varias anotaciones de ingress-nginx
+# ClientSettingsPolicy: equivalent to several ingress-nginx annotations
 # =============================================================================
-# Este recurso es ESPECÍFICO de NGINX Gateway Fabric (no es parte del spec
-# estándar de Gateway API). Permite configurar parámetros del cliente HTTP
-# que en ingress-nginx eran anotaciones.
+# This resource is SPECIFIC to NGINX Gateway Fabric (not part of the standard
+# Gateway API spec). It lets you configure HTTP client parameters that were
+# annotations in ingress-nginx.
 #
-# Mapeo:
+# Mapping:
 #
 #   nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 #     → spec.body.maxSize: "10m"
@@ -13,8 +13,8 @@
 #   nginx.ingress.kubernetes.io/keep-alive: "75"
 #     → spec.keepAlive.time: "75s"
 #
-# Para timeouts del UPSTREAM (read/connect/send), ver `NginxProxy` resource
-# o `UpstreamSettingsPolicy` — distintos a ClientSettings.
+# For UPSTREAM timeouts (read/connect/send), see the `NginxProxy` resource
+# or `UpstreamSettingsPolicy` — different from ClientSettings.
 # =============================================================================
 apiVersion: gateway.nginx.org/v1alpha1
 kind: ClientSettingsPolicy
@@ -25,16 +25,16 @@ metadata:
     app.kubernetes.io/part-of: boutique
     app.kubernetes.io/managed-by: ingress-to-gateway-demo
 spec:
-  # targetRef apunta al Gateway. La policy aplica a TODOS los HTTPRoutes
-  # adjuntos a este Gateway. Si necesitas distintos settings por route,
-  # crea policies separadas con targetRef apuntando a cada HTTPRoute.
+  # targetRef points to the Gateway. The policy applies to ALL HTTPRoutes
+  # attached to this Gateway. If you need different settings per route,
+  # create separate policies with targetRef pointing to each HTTPRoute.
   targetRef:
     group: gateway.networking.k8s.io
     kind: Gateway
     name: boutique-gateway
   body:
     maxSize: "10m"
-    # Si tu API recibe payloads en chunked transfer:
+    # If your API receives chunked transfer payloads:
     timeout: 60s
   keepAlive:
     requests: 100

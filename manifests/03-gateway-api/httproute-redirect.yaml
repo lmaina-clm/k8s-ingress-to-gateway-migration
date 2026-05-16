@@ -1,11 +1,12 @@
 # =============================================================================
-# HTTPRoute para redirect HTTP → HTTPS
+# HTTPRoute for HTTP → HTTPS redirect
 # =============================================================================
-# Equivale a la anotación `nginx.ingress.kubernetes.io/force-ssl-redirect: "true"`.
+# Equivalent to the `nginx.ingress.kubernetes.io/force-ssl-redirect: "true"`
+# annotation.
 #
-# En Gateway API el redirect es explícito: declaras una ruta sobre el listener
-# HTTP (puerto 80) que aplica un filter `RequestRedirect` a TODOS los requests.
-# Eso es más auditable que esconderlo en una anotación.
+# In Gateway API the redirect is explicit: you declare a route on the HTTP
+# listener (port 80) that applies a `RequestRedirect` filter to ALL requests.
+# That's more auditable than hiding it in an annotation.
 # =============================================================================
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -19,7 +20,7 @@ spec:
   parentRefs:
     - name: boutique-gateway
       namespace: gateway-system
-      # Solo al listener HTTP (puerto 80)
+      # Only the HTTP listener (port 80)
       sectionName: http
   hostnames:
     - shop.example.com
@@ -28,7 +29,7 @@ spec:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
-            # Status 301 (permanent) o 302 (temporary). Para producción usa 301
-            # para que los navegadores cacheen el redirect.
+            # Status 301 (permanent) or 302 (temporary). For production use 301
+            # so browsers cache the redirect.
             statusCode: 301
-            # Port omitido → default 443 (porque scheme=https)
+            # Port omitted → default 443 (because scheme=https)
