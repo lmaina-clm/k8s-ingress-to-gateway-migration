@@ -1,0 +1,25 @@
+# =============================================================================
+# ReferenceGrant
+# =============================================================================
+# Permite que los HTTPRoute en `microservices` referencien al Gateway en
+# `gateway-system`. Sin esto, las referencias cross-namespace son rechazadas
+# (es el modelo de seguridad de Gateway API).
+#
+# ⚠️ Este recurso requiere que los CRDs de Gateway API ya estén instalados.
+# Aplicar DESPUÉS de `kubectl apply -f https://.../standard-install.yaml` o
+# de correr `scripts/install-nginx-gateway-fabric.sh`.
+# =============================================================================
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-microservices-to-use-gateway
+  namespace: gateway-system
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: microservices
+  to:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: boutique-gateway

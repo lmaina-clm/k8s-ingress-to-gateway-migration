@@ -49,5 +49,5 @@ Debe devolver el HTML del frontend.
 
 ## Archivos
 
-- **`tls-secret.yaml`**: Secret con cert self-signed para `shop.example.com`. Reemplazar con un cert real para producción (vía cert-manager u otro método).
 - **`ingress.yaml`**: el `Ingress` principal con anotaciones típicas (`force-ssl-redirect`, `proxy-body-size`).
+- **`examples/tls-secret.yaml.example`**: plantilla del Secret TLS para `shop.example.com`. NO se aplica automáticamente con `kubectl apply -f manifests/02-ingress-nginx/` (vive en `examples/` para evitar sobrescribir un Secret real con placeholders). Para producción, generar el Secret vía cert-manager o crear uno con `kubectl create secret tls` antes de aplicar el Ingress.

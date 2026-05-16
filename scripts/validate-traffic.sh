@@ -90,14 +90,12 @@ test_nlb() {
   log "Probando $label contra $nlb (Host: $HOSTNAME_HEADER)"
   echo
 
-  # Resolver el NLB a una IP (curl --resolve necesita IP, no hostname)
+  # Resolver el NLB a una IP (curl --resolve necesita IP, no hostname).
+  # Usamos dig porque es portable entre Linux y macOS (getent no existe en macOS).
   local nlb_ip
-  nlb_ip=$(getent hosts "$nlb" | awk '{print $1}' | head -1)
+  nlb_ip=$(dig +short "$nlb" 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
   if [ -z "$nlb_ip" ]; then
-    nlb_ip=$(dig +short "$nlb" | grep -E '^[0-9]+\.' | head -1)
-  fi
-  if [ -z "$nlb_ip" ]; then
-    fail "$label: no se pudo resolver IP de $nlb"
+    fail "$label: no se pudo resolver IP de $nlb (¿dig instalado? ¿DNS funcionando?)"
     return 1
   fi
 

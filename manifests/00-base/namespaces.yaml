@@ -5,6 +5,11 @@
 # - gateway-system: aloja el Gateway + el data plane que NGF crea
 # - nginx-gateway: aloja el control plane de NGF (lo crea Helm; este manifiesto
 #                  está aquí solo como referencia, NO aplicar manualmente)
+#
+# Este archivo NO depende de los CRDs de Gateway API, así que se puede aplicar
+# en cualquier momento (incluso antes de instalar NGF). Para el ReferenceGrant
+# que SÍ depende de los CRDs, ver `reference-grant.yaml` y aplicarlo DESPUÉS
+# de instalar Gateway API.
 # =============================================================================
 ---
 apiVersion: v1
@@ -24,23 +29,3 @@ metadata:
   name: gateway-system
   labels:
     pod-security.kubernetes.io/enforce: baseline
----
-# =============================================================================
-# ReferenceGrant: permite que los HTTPRoute en `microservices` referencien al
-# Gateway en `gateway-system`. Sin esto, las referencias cross-namespace son
-# rechazadas (es el modelo de seguridad de Gateway API).
-# =============================================================================
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: ReferenceGrant
-metadata:
-  name: allow-microservices-to-use-gateway
-  namespace: gateway-system
-spec:
-  from:
-    - group: gateway.networking.k8s.io
-      kind: HTTPRoute
-      namespace: microservices
-  to:
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: boutique-gateway

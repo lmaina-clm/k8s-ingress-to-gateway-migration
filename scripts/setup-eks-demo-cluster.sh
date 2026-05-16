@@ -21,7 +21,9 @@
 # Variables de entorno opcionales:
 #   CLUSTER_NAME   (default: ingress-gw-demo)
 #   REGION         (default: eu-west-1)
-#   K8S_VERSION    (default: 1.32)
+#   K8S_VERSION    (default: 1.35 — última versión soportada en EKS standard
+#                   support. Versiones <= 1.32 están en extended support con
+#                   precio del control plane mayor a $0.10/h)
 #   NODE_TYPE      (default: t3.medium)
 #   NODE_COUNT     (default: 2)
 #   AWS_LB_CTRL_VERSION   (default: 1.8.3 — versión del Helm chart)
@@ -33,7 +35,7 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-ingress-gw-demo}"
 REGION="${REGION:-eu-west-1}"
-K8S_VERSION="${K8S_VERSION:-1.32}"
+K8S_VERSION="${K8S_VERSION:-1.35}"
 NODE_TYPE="${NODE_TYPE:-t3.medium}"
 NODE_COUNT="${NODE_COUNT:-2}"
 AWS_LB_CTRL_VERSION="${AWS_LB_CTRL_VERSION:-1.8.3}"

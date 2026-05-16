@@ -52,7 +52,7 @@ aws ec2 describe-availability-zones --region $REGION --query 'AvailabilityZones[
 ```
 
 Esto crea:
-- Cluster EKS 1.32 con OIDC habilitado
+- Cluster EKS 1.35 con OIDC habilitado
 - 2 nodos t3.medium en un managed nodegroup
 - AWS Load Balancer Controller con IRSA
 
@@ -70,8 +70,12 @@ kubectl -n kube-system get deploy aws-load-balancer-controller
 
 ## Fase 2 — Desplegar Online Boutique (~3 min)
 
+> Nota: solo aplicamos `namespaces.yaml` aquí. El `reference-grant.yaml` se
+> aplica más tarde, en la Fase 6, porque requiere los CRDs de Gateway API que
+> aún no están instalados.
+
 ```bash
-kubectl apply -f manifests/00-base/
+kubectl apply -f manifests/00-base/namespaces.yaml
 kubectl apply -k manifests/01-microservices/
 
 # Esperar a que todo esté Ready
@@ -166,6 +170,11 @@ kubectl get ingress -n microservices
 
 ```bash
 SKIP_CONFIRM=1 ./scripts/install-nginx-gateway-fabric.sh
+
+# Ahora que los CRDs existen, aplicamos el ReferenceGrant que dejamos pendiente
+# en la Fase 2 (autoriza HTTPRoutes en `microservices` a referenciar el Gateway
+# en `gateway-system`).
+kubectl apply -f manifests/00-base/reference-grant.yaml
 ```
 
 **Criterio de éxito**:
@@ -175,6 +184,9 @@ kubectl get crd | grep gateway.networking.k8s.io
 
 kubectl get gatewayclass nginx-gateway
 # ACCEPTED=True
+
+kubectl get referencegrant -n gateway-system
+# allow-microservices-to-use-gateway debe existir
 ```
 
 ---

@@ -150,7 +150,7 @@ Probado y documentado contra:
 
 | Componente | Versión |
 |------------|---------|
-| Kubernetes (EKS) | 1.30, 1.31, 1.32 |
+| Kubernetes (EKS) | 1.33, 1.34, 1.35 (1.32 ya en extended support) |
 | ingress-nginx | v1.11.x (último antes del EOL) |
 | Gateway API CRDs | v1.5.1 |
 | NGINX Gateway Fabric | 2.6.x |
